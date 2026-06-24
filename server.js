@@ -4,15 +4,27 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-// ✅ CORRIGIDO: Escuta a porta injetada pelo Render ou a 3000 caso seja local
 const PORT = process.env.PORT || 3000; 
 
 app.use(express.json());
 
-// Garante que a pasta raiz de uploads e o arquivo de dispositivos existam
-if (!fs.existsSync('./uploads')) fs.mkdirSync('./uploads');
+// 📁 Garante que a pasta raiz de uploads exista
+if (!fs.existsSync('./uploads')) {
+    fs.mkdirSync('./uploads');
+}
+
+// 🛡️ Inicialização Blindada do arquivo JSON (Evita crashes se estiver vazio ou corrompido)
 const DB_FILE = './dispositivos.json';
-if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+try {
+    if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
+        fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+    } else {
+        JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); // Testa se o JSON é válido
+    }
+} catch (e) {
+    // Se o arquivo estiver corrompido, reseta ele para um array vazio com segurança
+    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+}
 
 // Configura o multer para salvar temporariamente os arquivos na raiz de uploads
 const storage = multer.diskStorage({
@@ -32,25 +44,29 @@ app.post('/api/iot/register-device', (req, res) => {
         return res.status(400).send('Erro: Dados incompletos para registro.');
     }
 
-    const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
+    try {
+        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
 
-    const deviceInfo = {
-        user_id,
-        mac_address,
-        device_model: device_model || "ESP32-CAM OmniGuardian",
-        last_seen: new Date().toISOString()
-    };
+        const deviceInfo = {
+            user_id,
+            mac_address,
+            device_model: device_model || "ESP32-CAM OmniGuardian",
+            last_seen: new Date().toISOString()
+        };
 
-    if (deviceIndex >= 0) {
-        dbData[deviceIndex] = deviceInfo;
-    } else {
-        dbData.push(deviceInfo);
+        if (deviceIndex >= 0) {
+            dbData[deviceIndex] = deviceInfo;
+        } else {
+            dbData.push(deviceInfo);
+        }
+
+        fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+        console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
+        res.status(200).json({ status: "success", message: "Dispositivo registrado com sucesso!" });
+    } catch (err) {
+        res.status(500).send('Erro ao salvar dispositivo.');
     }
-
-    fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-    console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
-    res.status(200).json({ status: "success", message: "Dispositivo registrado com sucesso!" });
 });
 
 // ROTA: Recebe a foto, identifica o usuário dono do MAC e organiza em pastas
@@ -64,27 +80,24 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
         return res.status(400).send('Erro: Arquivo de imagem ausente.');
     }
 
-    // 🕵️‍♂️ Passo 1: Busca qual ID de Usuário é dono desse MAC no dispositivos.json
     let userId = 'usuario_desconhecido';
-    if (fs.existsSync(DB_FILE)) {
+    try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
-
         if (linkCorrespondente && linkCorrespondente.user_id) {
-            userId = linkCorrespondente.user_id; // Encontrou o ID real (Ex: USR-8742)
+            userId = linkCorrespondente.user_id;
         }
+    } catch (e) {
+        console.error("⚠️ Erro ao ler banco de dados para organizar fotos, usando diretório padrão.");
     }
 
-    // 📁 Passo 2: Define o caminho da pasta exclusiva daquele usuário (Ex: uploads/USR-8742/)
     const pastaDoUsuario = path.join(__dirname, 'uploads', userId);
 
-    // Se a pasta do usuário não existir, cria ela na hora de forma dinâmica
     if (!fs.existsSync(pastaDoUsuario)) {
         fs.mkdirSync(pastaDoUsuario, { recursive: true });
         console.log(`📁 [API] Nova pasta criada para o usuário: ${userId}`);
     }
 
-    // 🎯 Passo 3: Move o arquivo da raiz de uploads para dentro da pasta do usuário correto
     const caminhoFinalDoArquivo = path.join(pastaDoUsuario, file.filename);
 
     fs.rename(file.path, caminhoFinalDoArquivo, (err) => {
@@ -98,25 +111,33 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     });
 });
 
-// ROTA ATUALIZADA: Mostra os dispositivos logados E escaneia quais fotos existem em uploads/
+// ROTA: Puxar relatório geral de conexões E arquivos salvos no navegador
 app.get('/api/iot/overview', (req, res) => {
-    const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    
-    let estruturaPastas = {};
-    const caminhoUploads = path.join(__dirname, 'uploads');
-    
-    if (fs.existsSync(caminhoUploads)) {
-        const usuarios = fs.readdirSync(caminhoUploads);
-        usuarios.forEach(usuario => {
-            const caminhoUsuario = path.join(caminhoUploads, usuario);
-            if (fs.statSync(caminhoUsuario).isDirectory()) {
-                estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
-            }
-        });
-    }
+    try {
+        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        let estruturaPastas = {};
+        const caminhoUploads = path.join(__dirname, 'uploads');
+        
+        if (fs.existsSync(caminhoUploads)) {
+            const usuarios = fs.readdirSync(caminhoUploads);
+            usuarios.forEach(usuario => {
+                const caminhoUsuario = path.join(caminhoUploads, usuario);
+                if (fs.statSync(caminhoUsuario).isDirectory()) {
+                    estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
+                }
+            });
+        }
 
-    res.status(200).json({
-        dispositivos_registrados: dbData,
-        arquivos_armazenados: estruturaPastas
-    });
+        res.status(200).json({
+            dispositivos_registrados: dbData,
+            arquivos_armazenados: estruturaPastas
+        });
+    } catch (err) {
+        res.status(500).json({ erro: "Erro ao gerar relatório geral." });
+    }
+});
+
+// ✅ ALTERAÇÃO DE PORTA: Removido o '0.0.0.0' fixo para permitir que o Render faça o binding nativo
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`);
 });
