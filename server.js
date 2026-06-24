@@ -147,7 +147,7 @@ app.get('/dashboard', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>OmniGuardian - Painel de Controle</title>
+        <title>LumiTrap - Painel de Controle</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
         <style>body { font-family: 'Plus Jakarta Sans', sans-serif; }</style>
@@ -159,8 +159,8 @@ app.get('/dashboard', (req, res) => {
                 <div class="flex items-center gap-3">
                     <span class="text-2xl">🛡️</span>
                     <div>
-                        <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">OmniGuardian</h1>
-                        <p class="text-xs text-slate-400">Monitoramento IoT em Tempo Real</p>
+                        <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">LumiTrap</h1>
+                        <p class="text-xs text-slate-400">Monitoramento em Tempo Real</p>
                     </div>
                 </div>
                 <button onclick="carregarDados()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-sm font-semibold rounded-lg transition shadow-lg shadow-blue-600/20 active:scale-95">🔄 Atualizar Painel</button>
@@ -172,7 +172,7 @@ app.get('/dashboard', (req, res) => {
             <section>
                 <div class="flex items-center gap-2 mb-6">
                     <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    <h2 class="text-lg font-bold text-slate-300">Equipamentos Ativos</h2>
+                    <h2 class="text-lg font-bold text-slate-300">Armadilhas Ativas</h2>
                 </div>
                 <div id="grid-dispositivos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <p class="text-sm text-slate-500 col-span-full">Carregando dispositivos...</p>
