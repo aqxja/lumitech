@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+// ✅ CORRIGIDO: Escuta a porta injetada pelo Render ou a 3000 caso seja local
+const PORT = process.env.PORT || 3000; 
 
 app.use(express.json());
 
@@ -52,7 +53,7 @@ app.post('/api/iot/register-device', (req, res) => {
     res.status(200).json({ status: "success", message: "Dispositivo registrado com sucesso!" });
 });
 
-// ✅ ROTA ATUALIZADA: Recebe a foto, identifica o usuário dono do MAC e organiza em pastas
+// ROTA: Recebe a foto, identifica o usuário dono do MAC e organiza em pastas
 app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     const macAddress = req.body.mac_address;
     const file = req.file;
@@ -105,5 +106,4 @@ app.get('/api/iot/overview', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`);
-    console.log(`📊 Overview de conexões: http://localhost:${PORT}/api/iot/overview`);
 });
