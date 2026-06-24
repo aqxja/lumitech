@@ -98,12 +98,25 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     });
 });
 
-// ROTA: Puxar relatório geral de conexões no navegador
+// ROTA ATUALIZADA: Mostra os dispositivos logados E escaneia quais fotos existem em uploads/
 app.get('/api/iot/overview', (req, res) => {
     const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    res.status(200).json(dbData);
-});
+    
+    let estruturaPastas = {};
+    const caminhoUploads = path.join(__dirname, 'uploads');
+    
+    if (fs.existsSync(caminhoUploads)) {
+        const usuarios = fs.readdirSync(caminhoUploads);
+        usuarios.forEach(usuario => {
+            const caminhoUsuario = path.join(caminhoUploads, usuario);
+            if (fs.statSync(caminhoUsuario).isDirectory()) {
+                estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
+            }
+        });
+    }
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`);
+    res.status(200).json({
+        dispositivos_registrados: dbData,
+        arquivos_armazenados: estruturaPastas
+    });
 });
