@@ -8,16 +8,22 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Deixa a pasta de uploads pública para o navegador conseguir carregar as imagens pelas URLs
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 🛡️ LÓGICA DE ARMAZENAMENTO PERSISTENTE (RENDER DISK):
+// Verifica se existe o disco rígido do Render montado em '/data'.
+// Se existir, usa ele para que os dados nunca sumam nos Deploys. Se não, roda local.
+const DATA_DIR = fs.existsSync('/data') ? '/data' : __dirname;
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
 
-// Garante que a pasta raiz de uploads exista
-if (!fs.existsSync('./uploads')) {
-    fs.mkdirSync('./uploads');
+// Torna a pasta de uploads pública para o navegador carregar as fotos
+app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Garante que a pasta de uploads exista no caminho correto
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 // Inicialização do arquivo JSON (Banco de dados temporário)
-const DB_FILE = './dispositivos.json';
 try {
     if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
         fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
@@ -28,9 +34,48 @@ try {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// Configura o multer para salvar temporariamente os arquivos na raiz de uploads
+// 🧹 ROTINA DE LIMPEZA: Apaga fotos antigas com mais de 7 dias de vida
+function limparFotosAntigas() {
+    if (!fs.existsSync(UPLOADS_DIR)) return;
+
+    const AGORA = Date.now();
+    const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000; // Tempo de 1 semana em milissegundos
+
+    console.log("🧹 [SISTEMA] Executando varredura de limpeza para arquivos com mais de 7 dias...");
+
+    try {
+        const usuarios = fs.readdirSync(UPLOADS_DIR);
+        usuarios.forEach(usuario => {
+            const caminhoUsuario = path.join(UPLOADS_DIR, usuario);
+            
+            if (fs.statSync(caminhoUsuario).isDirectory()) {
+                const fotos = fs.readdirSync(caminhoUsuario);
+                
+                fotos.forEach(foto => {
+                    const caminhoFoto = path.join(caminhoUsuario, foto);
+                    const statusFoto = fs.statSync(caminhoFoto);
+                    
+                    // Compara a idade do arquivo (ctimeMs) com o limite de 7 dias
+                    if (AGORA - statusFoto.ctimeMs > SETE_DIAS_MS) {
+                        fs.unlinkSync(caminhoFoto);
+                        console.log(`🗑️ [LIMPEZA] Foto antiga removida automaticamente: ${foto} (Usuário: ${usuario})`);
+                    }
+                });
+            }
+        });
+    } catch (err) {
+        console.error("❌ Erro ao processar a limpeza semanal de fotos:", err);
+    }
+}
+
+// Executa a verificação assim que o servidor liga
+limparFotosAntigas();
+// Configura o servidor para verificar e aplicar a limpeza uma vez a cada 24 horas
+setInterval(limparFotosAntigas, 24 * 60 * 60 * 1000);
+
+// Configura o multer para salvar os arquivos na pasta dinâmica
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, 'foto-' + uniqueSuffix + path.extname(file.originalname));
@@ -93,7 +138,7 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
         console.error("⚠️ Erro ao ler banco de dados para organizar fotos.");
     }
 
-    const pastaDoUsuario = path.join(__dirname, 'uploads', userId);
+    const pastaDoUsuario = path.join(UPLOADS_DIR, userId);
 
     if (!fs.existsSync(pastaDoUsuario)) {
         fs.mkdirSync(pastaDoUsuario, { recursive: true });
@@ -108,7 +153,7 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
             return res.status(500).send('Erro interno ao processar e salvar imagem.');
         }
 
-        console.log(`💾 [API] Foto organized com sucesso! Armazenada em: ${caminhoFinalDoArquivo}`);
+        console.log(`💾 [API] Foto organizada com sucesso! Armazenada em: ${caminhoFinalDoArquivo}`);
         res.status(200).send('OK');
     });
 });
@@ -118,14 +163,13 @@ app.get('/api/iot/overview', (req, res) => {
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         let estruturaPastas = {};
-        const caminhoUploads = path.join(__dirname, 'uploads');
         
-        if (fs.existsSync(caminhoUploads)) {
-            const usuarios = fs.readdirSync(caminhoUploads);
+        if (fs.existsSync(UPLOADS_DIR)) {
+            const usuarios = fs.readdirSync(UPLOADS_DIR);
             usuarios.forEach(usuario => {
-                const caminhoUsuario = path.join(caminhoUploads, usuario);
+                const caminhoUsuario = path.join(UPLOADS_DIR, usuario);
                 if (fs.statSync(caminhoUsuario).isDirectory()) {
-                    blueprint = estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
+                    estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
                 }
             });
         }
@@ -215,7 +259,7 @@ app.get('/dashboard', (req, res) => {
                                         <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>
-                                                <p class="font-mono text-slate-300 font-medium">\-- ${'${disp.mac_address}'}</p>
+                                                <p class="font-mono text-slate-300 font-medium">\${disp.mac_address}</p>
                                             </div>
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>
@@ -257,8 +301,7 @@ app.get('/dashboard', (req, res) => {
                                     htmlGaleria += \`
                                         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
                                             <div class="aspect-video bg-slate-950 overflow-hidden relative">
-                                                <img src="/uploads/\${userId}/\
-\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
+                                                <img src="/uploads/\${userId}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
                                             </div>
                                             <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">
                                                 \${fotoNome}
