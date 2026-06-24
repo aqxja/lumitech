@@ -8,15 +8,15 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// ✅ NOVO: Deixa a pasta de uploads pública para o navegador conseguir carregar as imagens pelas URLs
+// Deixa a pasta de uploads pública para o navegador conseguir carregar as imagens pelas URLs
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 📁 Garante que a pasta raiz de uploads exista
+// Garante que a pasta raiz de uploads exista
 if (!fs.existsSync('./uploads')) {
     fs.mkdirSync('./uploads');
 }
 
-// 🛡️ Inicialização do arquivo JSON
+// Inicialização do arquivo JSON (Banco de dados temporário)
 const DB_FILE = './dispositivos.json';
 try {
     if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
@@ -108,7 +108,7 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
             return res.status(500).send('Erro interno ao processar e salvar imagem.');
         }
 
-        console.log(`💾 [API] Foto organizada com sucesso! Armazenada em: ${caminhoFinalDoArquivo}`);
+        console.log(`💾 [API] Foto organized com sucesso! Armazenada em: ${caminhoFinalDoArquivo}`);
         res.status(200).send('OK');
     });
 });
@@ -125,7 +125,7 @@ app.get('/api/iot/overview', (req, res) => {
             usuarios.forEach(usuario => {
                 const caminhoUsuario = path.join(caminhoUploads, usuario);
                 if (fs.statSync(caminhoUsuario).isDirectory()) {
-                    estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
+                    blueprint = estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
                 }
             });
         }
@@ -139,7 +139,7 @@ app.get('/api/iot/overview', (req, res) => {
     }
 });
 
-// ✅ ROTA NOVA: Serve uma interface Web linda (Dashboard) para ver os dados e as FOTOS reais!
+// ROTA DO DASHBOARD: Interface Web em Dark Mode estilizada com TailwindCSS
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -171,7 +171,7 @@ app.get('/dashboard', (req, res) => {
             
             <section>
                 <div class="flex items-center gap-2 mb-6">
-                    <span class="w-2.h-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                     <h2 class="text-lg font-bold text-slate-300">Equipamentos Ativos</h2>
                 </div>
                 <div id="grid-dispositivos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -193,7 +193,6 @@ app.get('/dashboard', (req, res) => {
                 fetch('/api/iot/overview')
                     .then(res => res.json())
                     .then(data => {
-                        // 1. Renderiza Dispositivos
                         const gridDisp = document.getElementById('grid-dispositivos');
                         gridDisp.innerHTML = '';
                         
@@ -207,7 +206,7 @@ app.get('/dashboard', (req, res) => {
                                         <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>
                                         <div class="flex justify-between items-start">
                                             <span class="text-xs font-bold px-2.5 py-1 bg-slate-800 border border-slate-700 text-blue-400 rounded-md">\${disp.device_model}</span>
-                                            <span class="text-xs text-slate-500">Online</span>
+                                            <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">● Online</span>
                                         </div>
                                         <div>
                                             <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>
@@ -216,11 +215,11 @@ app.get('/dashboard', (req, res) => {
                                         <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>
-                                                <p class="font-mono text-slate-300 font-medium">\${disp.mac_address}</p>
+                                                <p class="font-mono text-slate-300 font-medium">\-- ${'${disp.mac_address}'}</p>
                                             </div>
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>
-                                                <p class="text-slate-300 font-medium">\".concat(dataFormatada, "\` + `</p>
+                                                <p class="text-slate-300 font-medium">\${dataFormatada}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -228,7 +227,6 @@ app.get('/dashboard', (req, res) => {
                             });
                         }
 
-                        // 2. Renderiza Imagens Separadas por Usuário
                         const containerUsers = document.getElementById('container-usuarios');
                         containerUsers.innerHTML = '';
 
@@ -255,12 +253,12 @@ app.get('/dashboard', (req, res) => {
                             if (fotos.length === 0) {
                                 htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Esta pasta está vazia por enquanto.</p>';
                             } else {
-                                // Exibe as fotos em ordem decrescente (as mais novas primeiro)
                                 [...fotos].reverse().forEach(fotoNome => {
                                     htmlGaleria += \`
                                         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
                                             <div class="aspect-video bg-slate-950 overflow-hidden relative">
-                                                <img src="/uploads/\${userId}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
+                                                <img src="/uploads/\${userId}/\
+\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
                                             </div>
                                             <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">
                                                 \${fotoNome}
@@ -274,12 +272,10 @@ app.get('/dashboard', (req, res) => {
                             containerUsers.innerHTML += htmlGaleria;
                         });
                     })
-                    .catch(err => console.error("Erro ao puxar dados do Overview:", err));
+                    .catch(err => console.error("Erro ao carregar dados:", err));
             }
 
-            // Inicializa no carregamento da página
             carregarDados();
-            // Atualiza de 15 em 15 segundos sozinho
             setInterval(carregarDados, 15000);
         </script>
     </body>
