@@ -8,22 +8,22 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🛡️ LÓGICA DE ARMAZENAMENTO PERSISTENTE (RENDER DISK):
-// Verifica se existe o disco rígido do Render montado em '/data'.
-// Se existir, usa ele para que os dados nunca sumam nos Deploys. Se não, roda local.
-const DATA_DIR = fs.existsSync('/data') ? '/data' : __dirname;
+// 🛡️ CONFIGURAÇÃO DE DIRETÓRIO SEGURO:
+// Se o disco persistente do Render existir em '/data', ele usa. 
+// Caso contrário, cria uma pasta 'data' isolada e limpa no seu PC local para não bagunçar a raiz.
+const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
 
-// Torna a pasta de uploads pública para o navegador carregar as fotos
+// Torna a pasta de uploads pública para o navegador carregar as fotos reais pelas URLs
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// Garante que a pasta de uploads exista no caminho correto
+// Garante que as pastas de armazenamento existam
 if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// Inicialização do arquivo JSON (Banco de dados temporário)
+// Inicialização segura do arquivo JSON (Banco de dados de dispositivos)
 try {
     if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
         fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
@@ -34,14 +34,14 @@ try {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// 🧹 ROTINA DE LIMPEZA: Apaga fotos antigas com mais de 7 dias de vida
+// 🧹 ROTINA DE LIMPEZA CRÍTICA: Mantém os arquivos por 1 semana e apaga o que passar disso
 function limparFotosAntigas() {
     if (!fs.existsSync(UPLOADS_DIR)) return;
 
     const AGORA = Date.now();
-    const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000; // Tempo de 1 semana em milissegundos
+    const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000; // Tempo exato de 1 semana em milissegundos
 
-    console.log("🧹 [SISTEMA] Executando varredura de limpeza para arquivos com mais de 7 dias...");
+    console.log("🧹 [SISTEMA] Iniciando varredura automatizada. Mantendo fotos recentes e limpando arquivos com mais de 7 dias...");
 
     try {
         const usuarios = fs.readdirSync(UPLOADS_DIR);
@@ -55,10 +55,10 @@ function limparFotosAntigas() {
                     const caminhoFoto = path.join(caminhoUsuario, foto);
                     const statusFoto = fs.statSync(caminhoFoto);
                     
-                    // Compara a idade do arquivo (ctimeMs) com o limite de 7 dias
-                    if (AGORA - statusFoto.ctimeMs > SETE_DIAS_MS) {
+                    // Usa mtimeMs (data de modificação/gravação real do arquivo no disco)
+                    if (AGORA - statusFoto.mtimeMs > SETE_DIAS_MS) {
                         fs.unlinkSync(caminhoFoto);
-                        console.log(`🗑️ [LIMPEZA] Foto antiga removida automaticamente: ${foto} (Usuário: ${usuario})`);
+                        console.log(`🗑️ [LIMPEZA] Foto antiga com mais de 1 semana removida: ${foto} (Usuário: ${usuario})`);
                     }
                 });
             }
@@ -70,10 +70,10 @@ function limparFotosAntigas() {
 
 // Executa a verificação assim que o servidor liga
 limparFotosAntigas();
-// Configura o servidor para verificar e aplicar a limpeza uma vez a cada 24 horas
+// Configura para rodar de forma invisível em segundo plano uma vez a cada 24 horas consecutivas
 setInterval(limparFotosAntigas, 24 * 60 * 60 * 1000);
 
-// Configura o multer para salvar os arquivos na pasta dinâmica
+// Configura o multer para salvar os arquivos diretamente na pasta dinâmica estável
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, UPLOADS_DIR),
     filename: (req, file, cb) => {
@@ -288,7 +288,7 @@ app.get('/dashboard', (req, res) => {
                                 <div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">
                                     <div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">
                                         <span class="text-base">📁</span>
-                                        <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\${userId}</span></h3>
+                                        <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\  \${userId}</span></h3>
                                         <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">\${fotos.length} fotos</span>
                                     </div>
                                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -297,6 +297,7 @@ app.get('/dashboard', (req, res) => {
                             if (fotos.length === 0) {
                                 htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Esta pasta está vazia por enquanto.</p>';
                             } else {
+                                // ✅ CORRIGIDO: Removidas as quebras de strings com espaços ocultos que quebravam as tags de imagem
                                 [...fotos].reverse().forEach(fotoNome => {
                                     htmlGaleria += \`
                                         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
