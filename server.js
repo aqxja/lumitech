@@ -84,7 +84,6 @@ app.post('/api/iot/toggle-stream', (req, res) => {
     res.json({ status: "success", stream: streamStatus[mac_address] });
 });
 
-// ✅ ATUALIZADO: Gerencia ativamente a ordem de START/STOP enviada de volta para o Arduino
 app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500kb' }), (req, res) => {
     const macAddress = req.headers['x-mac-address'];
     if (!macAddress || !req.body || req.body.length === 0) {
@@ -93,7 +92,6 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
 
     registrarHardwarePorIdDeContingencia(macAddress); 
 
-    // Se o botão não estiver ativo ou a página fechou, manda o Arduino parar imediatamente
     if (!streamStatus[macAddress] || !liveClients[macAddress] || liveClients[macAddress].length === 0) {
         streamStatus[macAddress] = false;
         return res.send('STOP');
@@ -110,7 +108,7 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
         } catch(e) {}
     });
 
-    res.send('START'); // Manda o Arduino continuar capturando e enviando frames
+    res.send('START'); 
 });
 
 app.get('/api/iot/live/:mac', (req, res) => {
@@ -120,7 +118,7 @@ app.get('/api/iot/live/:mac', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Pragma', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no'); // Desativa retenção de buffer no proxy do Render
+    res.setHeader('X-Accel-Buffering', 'no'); 
 
     if (!liveClients[mac]) liveClients[mac] = [];
     liveClients[mac].push(res);
@@ -303,6 +301,18 @@ app.get('/dashboard', (req, res) => {
                 }
             }
 
+            function forcarRegistroManual() {
+                var macInput = document.getElementById('debug-mac');
+                if (!macInput || !macInput.value.trim()) return alert('Insira um MAC válido!');
+                
+                fetch('/api/iot/register-device', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mac_address: macInput.value.trim().toUpperCase(), user_id: 'USR-8742' })
+                })
+                .then(function() { carregarDados(); });
+            }
+
             function carregarDados() {
                 fetch('/api/iot/overview')
                     .then(function(res) { return res.json(); })
@@ -310,8 +320,20 @@ app.get('/dashboard', (req, res) => {
                         var central = document.getElementById('central-dispositivos');
                         central.innerHTML = '';
                         
+                        // ✅ SEÇÃO DE DIAGNÓSTICO E BUSCA SE TUDO ESTIVER ZERADO
                         if (!data.dispositivos_registrados || data.dispositivos_registrados.length === 0) {
-                            central.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma câmera ativa no barramento. Ligue o dispositivo ou reconfigure via App Android.</p>';
+                            central.innerHTML = [
+                                '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-xl mx-auto text-center space-y-4">',
+                                '    <p class="text-sm text-slate-400">Nenhuma câmara ativa em memória (o Render pode ter reiniciado).</p>',
+                                '    <div class="border-t border-slate-800 pt-4 space-y-3">',
+                                '        <p class="text-xs text-slate-500">💡 Ferramenta de Debug: Force a visualização digitando o MAC da sua câmara:</p>',
+                                '        <div class="flex gap-2">',
+                                '            <input id="debug-mac" type="text" placeholder="Ex: 24:0A:C4:XX:XX:XX" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs w-full text-slate-200 uppercase font-mono focus:outline-none focus:border-blue-500">',
+                                '            <button onclick="forcarRegistroManual()" class="bg-blue-600 hover:bg-blue-500 text-xs font-bold px-4 py-2 rounded-xl transition whitespace-nowrap">Conectar MAC</button>',
+                                '        </div>',
+                                '    </div>',
+                                '</div>'
+                            ].join('');
                             return;
                         }
 
