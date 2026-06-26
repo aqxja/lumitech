@@ -18,15 +18,22 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-try {
-    if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
-        fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
-    } else {
-        JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); 
+// Lista em memória RAM de contingência para evitar perdas causadas pelo Sleep do Render
+let cacheDispositivosMemoria = [];
+
+function carregarBanco() {
+    try {
+        if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
+            fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+            return [];
+        }
+        return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    } catch (e) {
+        return [];
     }
-} catch (e) {
-    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
+
+cacheDispositivosMemoria = carregarBanco();
 
 const streamStatus = {};  
 const liveClients = {};   
@@ -34,9 +41,7 @@ const liveClients = {};
 function registrarHardwarePorIdDeContingencia(mac, userIdOpcional = 'USR-8742') {
     if (!mac || mac.trim() === "") return;
     try {
-        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        const existe = dbData.some(item => item.mac_address === mac);
-        
+        const existe = cacheDispositivosMemoria.some(item => item.mac_address === mac);
         if (!existe) {
             const deviceInfo = { 
                 user_id: userIdOpcional, 
@@ -44,9 +49,9 @@ function registrarHardwarePorIdDeContingencia(mac, userIdOpcional = 'USR-8742') 
                 device_model: "XIAO ESP32S3 OmniGuardian (Auto-Conectado)", 
                 last_seen: new Date().toISOString() 
             };
-            dbData.push(deviceInfo);
-            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-            console.log(`\n🤖 [AUTO-CONEXÃO] Câmera ${mac} detectada. Usuário criado automaticamente no banco.`);
+            cacheDispositivosMemoria.push(deviceInfo);
+            fs.writeFileSync(DB_FILE, JSON.stringify(cacheDispositivosMemoria, null, 2));
+            console.log(`\n🤖 [AUTO-CONEXÃO] Câmera ${mac} indexada com sucesso.`);
             
             const pastaDoUsuario = path.join(UPLOADS_DIR, userIdOpcional);
             if (!fs.existsSync(pastaDoUsuario)) {
@@ -103,13 +108,17 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
     res.send('OK');
 });
 
+// 🎬 ROTA DO LIVE STREAMING COM DESATIVAÇÃO DE BUFFER DO RENDER
 app.get('/api/iot/live/:mac', (req, res) => {
     const mac = req.params.mac;
     
     res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Pragma', 'no-cache');
+    
+    // 🔥 ESSENCIAL PARA O RENDER: Evita que o proxy da nuvem retenha os frames do vídeo em buffer
+    res.setHeader('X-Accel-Buffering', 'no');
 
     if (!liveClients[mac]) liveClients[mac] = [];
     liveClients[mac].push(res);
@@ -165,12 +174,11 @@ app.post('/api/iot/register-device', (req, res) => {
     
     const finalUserId = user_id || 'USR-8742';
     try {
-        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
+        const deviceIndex = cacheDispositivosMemoria.findIndex(item => item.mac_address === mac_address);
         const deviceInfo = { user_id: finalUserId, mac_address, device_model: device_model || "ESP32-CAM OmniGuardian", last_seen: new Date().toISOString() };
         
-        if (deviceIndex >= 0) dbData[deviceIndex] = deviceInfo; else dbData.push(deviceInfo);
-        fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+        if (deviceIndex >= 0) cacheDispositivosMemoria[deviceIndex] = deviceInfo; else cacheDispositivosMemoria.push(deviceInfo);
+        fs.writeFileSync(DB_FILE, JSON.stringify(cacheDispositivosMemoria, null, 2));
         console.log(`\n📲 [API] Dispositivo Registrado: Usuário ${finalUserId} -> Câmera ${mac_address}`);
 
         const pastaDoUsuario = path.join(UPLOADS_DIR, finalUserId);
@@ -193,13 +201,10 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     let userId = 'USR-8742'; 
     registrarHardwarePorIdDeContingencia(macAddress, userId); 
 
-    try {
-        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
-        if (linkCorrespondente) {
-            userId = linkCorrespondente.user_id;
-        }
-    } catch (e) {}
+    const linkCorrespondente = cacheDispositivosMemoria.find(item => item.mac_address === macAddress);
+    if (linkCorrespondente) {
+        userId = linkCorrespondente.user_id;
+    }
     
     const pastaDoUsuario = path.join(UPLOADS_DIR, userId);
     if (!fs.existsSync(pastaDoUsuario)) fs.mkdirSync(pastaDoUsuario, { recursive: true });
@@ -211,7 +216,6 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
 
 app.get('/api/iot/overview', (req, res) => {
     try {
-        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         let estruturaPastas = {};
         if (fs.existsSync(UPLOADS_DIR)) {
             fs.readdirSync(UPLOADS_DIR).forEach(usuario => {
@@ -219,11 +223,11 @@ app.get('/api/iot/overview', (req, res) => {
                 if (fs.statSync(caminhoUsuario).isDirectory()) estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
             });
         }
-        res.status(200).json({ dispositivos_registrados: dbData, arquivos_armazenados: estruturaPastas });
+        res.status(200).json({ dispositivos_registrados: cacheDispositivosMemoria, arquivos_armazenados: estruturaPastas });
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
-// 🌐 ROTA DO DASHBOARD REESTRUTURADA COM BACKTICKS ESCAPADOS (Sem erros de aspas)
+// 🌐 REESTRUTURAÇÃO DO HTML COMPACTADO POR CONCATENAÇÃO SEGURA DE ARRAYS (Elimina 100% de erros de aspas)
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -263,9 +267,9 @@ app.get('/dashboard', (req, res) => {
 
         <script>
             function toggleLiveStream(mac) {
-                const container = document.getElementById('video-container-' + mac.replace(/:/g, ''));
-                const img = document.getElementById('video-feed-' + mac.replace(/:/g, ''));
-                const btn = document.getElementById('btn-stream-' + mac.replace(/:/g, ''));
+                var container = document.getElementById('video-container-' + mac.replace(/:/g, ''));
+                var img = document.getElementById('video-feed-' + mac.replace(/:/g, ''));
+                var btn = document.getElementById('btn-stream-' + mac.replace(/:/g, ''));
                 
                 if (container.classList.contains('hidden')) {
                     fetch('/api/iot/toggle-stream', {
@@ -273,8 +277,8 @@ app.get('/dashboard', (req, res) => {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mac_address: mac, action: 'start' })
                     })
-                    .then(res => res.json())
-                    .then(data => {
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
                         container.classList.remove('hidden');
                         img.src = '/api/iot/live/' + mac;
                         btn.innerHTML = '🛑 Encerrar Transmissão';
@@ -287,8 +291,8 @@ app.get('/dashboard', (req, res) => {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mac_address: mac, action: 'stop' })
                     })
-                    .then(res => res.json())
-                    .then(data => {
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
                         container.classList.add('hidden');
                         img.src = '';
                         btn.innerHTML = '🎥 Abrir Transmissão Ao Vivo';
@@ -300,80 +304,77 @@ app.get('/dashboard', (req, res) => {
 
             function carregarDados() {
                 fetch('/api/iot/overview')
-                    .then(res => res.json())
-                    .then(data => {
-                        const central = document.getElementById('central-dispositivos');
+                    .then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        var central = document.getElementById('central-dispositivos');
                         central.innerHTML = '';
                         
-                        if (data.dispositivos_registrados.length === 0) {
-                            central.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma câmera vinculada ou ativa no momento. Conecte seu dispositivo via App Android.</p>';
+                        if (!data.dispositivos_registrados || data.dispositivos_registrados.length === 0) {
+                            central.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma câmera ativa no barramento. Ligue o dispositivo ou reconfigure via App Android.</p>';
                             return;
                         }
 
-                        data.dispositivos_registrados.forEach(disp => {
-                            const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
-                            const macIdSanitizado = disp.mac_address.replace(/:/g, '');
+                        data.dispositivos_registrados.forEach(function(disp) {
+                            var dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
+                            var macIdSanitizado = disp.mac_address.replace(/:/g, '');
+                            var fotosUsuario = data.arquivos_armazenados[disp.user_id] || [];
                             
-                            const fotosUsuario = data.arquivos_armazenados[disp.user_id] || [];
-                            
-                            let htmlFotos = '';
+                            var htmlFotos = '';
                             if (fotosUsuario.length === 0) {
-                                htmlFotos = \`<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura em anexo nesta pasta. Aguardando disparo automático (07:00, 12:00, 19:00).</p>\`;
+                                htmlFotos = '<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura armazenada para este usuário.</p>';
                             } else {
-                                htmlFotos = \`<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">\`;
-                                [...fotosUsuario].reverse().forEach(fotoNome => {
-                                    htmlFotos += \`
-                                        <div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">
-                                            <div class="aspect-video bg-black overflow-hidden relative">
-                                                <img src="/uploads/\${disp.user_id}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura Fixa" />
-                                            </div>
-                                            <div class="p-2 text-[10px] text-slate-400 font-mono truncate">\${fotoNome}</div>
-                                        </div>
-                                    \`;
+                                htmlFotos = '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">';
+                                fotosUsuario.reverse().forEach(function(fotoNome) {
+                                    htmlFotos += [
+                                        '<div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">',
+                                        '    <div class="aspect-video bg-black overflow-hidden relative">',
+                                        '        <img src="/uploads/' + disp.user_id + '/' + fotoNome + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />',
+                                        '    </div>',
+                                        '    <div class="p-2 text-[10px] text-slate-400 font-mono truncate">' + fotoNome + '</div>',
+                                        '</div>'
+                                    ].join('');
                                 });
-                                htmlFotos += \`</div>\`;
+                                htmlFotos += '</div>';
                             }
 
-                            // Renderização 100% limpa com crases escapadas (Garante que o navegador compile perfeitamente)
-                            central.innerHTML += \`
-                                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
-                                    <div class="flex justify-between items-center border-b border-slate-800 pb-4">
-                                        <div>
-                                            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 ID Usuário: \${disp.user_id}</h3>
-                                            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">\${disp.device_model}</span> | MAC: <span class="font-mono text-slate-300">\${disp.mac_address}</span></p>
-                                        </div>
-                                        <div class="text-right text-xs">
-                                            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Ativa por ID Hardware</span>
-                                            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: \${dataFormatada}</p>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="space-y-3">
-                                        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>
-                                        <button onclick="toggleLiveStream('\${disp.mac_address}')" id="btn-stream-\${macIdSanitizado}" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">
-                                            🎥 Abrir Transmissão Ao Vivo
-                                        </button>
-                                        <div id="video-container-\${macIdSanitizado}" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">
-                                            <img id="video-feed-\${macIdSanitizado}" class="w-full h-full object-contain" src="" alt="Live feed" />
-                                            <span class="absolute top-3 left-3 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">STREAM ATIVO</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="pt-4 border-t border-slate-800/60 space-y-3">
-                                        <div class="flex items-center gap-2">
-                                            <h4 class="text-sm font-semibold text-slate-300">📁 Pasta de Armazenamento Coletado (\${disp.user_id})</h4>
-                                            <span class="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-md font-medium">\${fotosUsuario.length} arquivos</span>
-                                        </div>
-                                        \${htmlFotos}
-                                    </div>
-                                </div>
-                            \`;
+                            var cardHtml = [
+                                '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">',
+                                '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">',
+                                '        <div>',
+                                '            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 ID Usuário: ' + disp.user_id + '</h3>',
+                                '            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">' + disp.device_model + '</span> | MAC: <span class="font-mono text-slate-300">' + disp.mac_address + '</span></p>',
+                                '        </div>',
+                                '        <div class="text-right text-xs">',
+                                '            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Dispositivo Online</span>',
+                                '            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: ' + dataFormatada + '</p>',
+                                '        </div>',
+                                '    </div>',
+                                '    ',
+                                '    <div class="space-y-3">',
+                                '        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>',
+                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">',
+                                '            🎥 Abrir Transmissão Ao Vivo',
+                                '        </button>',
+                                '        <div id="video-container-' + macIdSanitizado + '" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">',
+                                '            <img id="video-feed-' + macIdSanitizado + '" class="w-full h-full object-contain" src="" alt="Live feed" />',
+                                '            <span class="absolute top-3 left-3 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">STREAM ATIVO</span>',
+                                '        </div>',
+                                '    </div>',
+                                '    ',
+                                '    <div class="pt-4 border-t border-slate-800/60 space-y-3">',
+                                '        <h4 class="text-sm font-semibold text-slate-300">📁 Pasta de Armazenamento Coletado (' + disp.user_id + ')</h4>',
+                                '        ' + htmlFotos,
+                                '    </div>',
+                                '</div>'
+                            ].join('');
+
+                            central.innerHTML += cardHtml;
                         });
                     })
-                    .catch(err => console.error("Erro ao processar central:", err));
+                    .catch(function(err) { console.error("Erro ao carregar dados do painel:", err); });
             }
             carregarDados();
-            setInterval(carregarDados, 12000);
+            setInterval(carregarDados, 10000);
         </script>
     </body>
     </html>
