@@ -132,6 +132,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// ROTA DE REGISTRO: Vincula o ID e cria a pasta na hora
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
     if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
@@ -286,7 +287,7 @@ app.get('/dashboard', (req, res) => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                                 const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                                 
-                                // ✅ BLINDADO: Concatenação segura imune a bugs de string literal
+                                // ✅ ALTERADO: Concatenação segura que elimina travamentos lógicos no navegador
                                 gridDisp.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">' +
                                 '    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>' +
                                 '    <div class="flex justify-between items-start">' +
