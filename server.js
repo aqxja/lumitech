@@ -227,7 +227,6 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
-// 🌐 DASHBOARD REESTRUTURADA: Sem conflitos de aspas no navegador
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -280,7 +279,11 @@ app.get('/dashboard', (req, res) => {
                     .then(function(res) { return res.json(); })
                     .then(function(data) {
                         container.classList.remove('hidden');
-                        img.src = '/api/iot/live/' + mac;
+                        
+                        // ✅ CORREÇÃO: Cache-Buster com carimbo de milissegundo (?t=...) 
+                        // Força o browser a resetar e ignorar streams velhas ou rompidas da memória cache
+                        img.src = '/api/iot/live/' + mac + '?t=' + Date.now();
+                        
                         btn.innerHTML = '🛑 Encerrar Transmissão';
                         btn.classList.replace('bg-indigo-600', 'bg-red-600');
                         btn.classList.replace('hover:bg-indigo-500', 'hover:bg-red-500');
@@ -361,7 +364,6 @@ app.get('/dashboard', (req, res) => {
                                 htmlFotos += '</div>';
                             }
 
-                            // ✅ CORREÇÃO EM DATA-MAC: Remove o onclick em string e injeta como atributo limpo
                             var cardHtml = [
                                 '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">',
                                 '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">',
@@ -399,7 +401,6 @@ app.get('/dashboard', (req, res) => {
                     .catch(function(err) { console.error("Erro ao carregar dados do painel:", err); });
             }
 
-            // ✅ NOVO: Captura os cliques nos botões usando Event Delegation (Evita erros de sintaxe e aspas)
             document.addEventListener('click', function(e) {
                 if (e.target && e.target.classList.contains('btn-toggle-stream')) {
                     var macAddress = e.target.getAttribute('data-mac');
