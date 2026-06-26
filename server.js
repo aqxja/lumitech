@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// CONFIGURAÇÃO DE DIRETÓRIO:
+// 🛡️ CONFIGURAÇÃO DE DIRETÓRIO PERSISTENTE
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
@@ -132,7 +132,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// ROTA ALTERADA: Cria a pasta do usuário dinamicamente já no momento do registro via App
+// ROTA DE REGISTRO: Vincula o ID e cria a pasta na hora
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
     if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
@@ -146,11 +146,10 @@ app.post('/api/iot/register-device', (req, res) => {
         fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
         console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
 
-        // ✅ INOVAÇÃO AQUI: Garante que a pasta exista na mesma hora do pareamento!
         const pastaDoUsuario = path.join(UPLOADS_DIR, user_id);
         if (!fs.existsSync(pastaDoUsuario)) {
             fs.mkdirSync(pastaDoUsuario, { recursive: true });
-            console.log(`📁 [API] Pasta criada antecipadamente para exibir no Dashboard: ${user_id}`);
+            console.log(`📁 [API] Pasta criada antecipadamente para o Dashboard: ${user_id}`);
         }
 
         res.status(200).json({ status: "success" });
@@ -287,6 +286,8 @@ app.get('/dashboard', (req, res) => {
                             data.dispositivos_registrados.forEach(disp => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                                 const macIdSanitizado = disp.mac_address.replace(/:/g, '');
+                                
+                                // ✅ CORRIGIDO: Removido o caractere de escape '\text' que quebrava as strings
                                 gridDisp.innerHTML += \`
                                     <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">
                                         <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>
@@ -296,12 +297,12 @@ app.get('/dashboard', (req, res) => {
                                         </div>
                                         <div>
                                             <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>
-                                            <p class="text-base font-bold text-slate-200">\text{\${disp.user_id}}\</p>
+                                            <p class="text-base font-bold text-slate-200">\${disp.user_id}</p>
                                         </div>
                                         <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>
-                                                <p class="font-mono text-slate-300 font-medium">\${disp.mac_address}</p>
+                                                <p class="font-mono text-slate-300 font-medium">\-- \${disp.mac_address}</p>
                                             </div>
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>
