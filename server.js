@@ -9,21 +9,16 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // 🛡️ CONFIGURAÇÃO DE DIRETÓRIO SEGURO:
-// Se o disco persistente do Render existir em '/data', ele usa. 
-// Caso contrário, cria uma pasta 'data' isolada e limpa no seu PC local para não bagunçar a raiz.
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
 
-// Torna a pasta de uploads pública para o navegador carregar as fotos reais pelas URLs
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// Garante que as pastas de armazenamento existam
 if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// Inicialização segura do arquivo JSON (Banco de dados de dispositivos)
 try {
     if (!fs.existsSync(DB_FILE) || fs.readFileSync(DB_FILE, 'utf8').trim() === '') {
         fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
@@ -34,46 +29,108 @@ try {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// 🧹 ROTINA DE LIMPEZA CRÍTICA: Mantém os arquivos por 1 semana e apaga o que passar disso
+// 🎛️ CONTROLE DE STREAMING DE VÍDEO EM TEMPO REAL (MJPEG)
+const streamStatus = {};  
+const liveClients = {};   
+
+// Endpoint para o ESP32 checar se o painel web está solicitando transmissão de vídeo
+app.get('/api/iot/stream-status', (req, res) => {
+    const mac = req.query.mac;
+    res.json({ stream: !!streamStatus[mac] });
+});
+
+// Endpoint chamado pelo Dashboard para ligar/desligar o streaming da armadilha
+app.post('/api/iot/toggle-stream', (req, res) => {
+    const { mac_address, action } = req.body;
+    if (action === 'start') {
+        streamStatus[mac_address] = true;
+        console.log(`🎥 [STREAM] Transmissão de vídeo iniciada para: ${mac_address}`);
+    } else {
+        streamStatus[mac_address] = false;
+        console.log(`🛑 [STREAM] Transmissão de vídeo encerrada para: ${mac_address}`);
+        if (liveClients[mac_address]) {
+            liveClients[mac_address].forEach(c => { try { c.end(); } catch(e){} });
+            liveClients[mac_address] = [];
+        }
+    }
+    res.json({ status: "success", stream: streamStatus[mac_address] });
+});
+
+// Endpoint ultra-rápido para o ESP32 descarregar os buffers binários jpegs brutos do vídeo
+app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500kb' }), (req, res) => {
+    const macAddress = req.headers['x-mac-address'];
+    if (!macAddress || !req.body || req.body.length === 0) {
+        return res.status(400).send('Dados de frame inválidos.');
+    }
+
+    // Se houver navegadores sintonizados no dashboard, repassa o frame imediatamente
+    if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
+        const frame = req.body;
+        liveClients[macAddress].forEach(clientRes => {
+            try {
+                clientRes.write(`--frame\r\n`);
+                clientRes.write(`Content-Type: image/jpeg\r\n`);
+                clientRes.write(`Content-Length: ${frame.length}\r\n\r\n`);
+                clientRes.write(frame);
+                clientRes.write(`\r\n`);
+            } catch(e) {
+                // Remove conexões corrompidas
+            }
+        });
+    }
+    res.send('OK');
+});
+
+// Rota que o Dashboard pluga na tag <img> para renderizar o vídeo contínuo por boundaries
+app.get('/api/iot/live/:mac', (req, res) => {
+    const mac = req.params.mac;
+    
+    res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Pragma', 'no-cache');
+
+    if (!liveClients[mac]) liveClients[mac] = [];
+    liveClients[mac].push(res);
+
+    req.on('close', () => {
+        liveClients[mac] = liveClients[mac].filter(c => c !== res);
+        if (liveClients[mac].length === 0) {
+            // Se o usuário fechou o modal ou saiu da página, manda o ESP32 desligar o sensor
+            streamStatus[mac] = false;
+            console.log(`🛑 [STREAM] Sem espectadores na página. Desligando streaming do MAC: ${mac}`);
+        }
+    });
+});
+
+// 🧹 ROTINA DE LIMPEZA CRÍTICA SEMANAL
 function limparFotosAntigas() {
     if (!fs.existsSync(UPLOADS_DIR)) return;
-
     const AGORA = Date.now();
-    const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000; // Tempo exato de 1 semana em milissegundos
-
-    console.log("🧹 [SISTEMA] Iniciando varredura automatizada. Mantendo fotos recentes e limpando arquivos com mais de 7 dias...");
-
+    const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000;
     try {
         const usuarios = fs.readdirSync(UPLOADS_DIR);
         usuarios.forEach(usuario => {
             const caminhoUsuario = path.join(UPLOADS_DIR, usuario);
-            
             if (fs.statSync(caminhoUsuario).isDirectory()) {
                 const fotos = fs.readdirSync(caminhoUsuario);
-                
                 fotos.forEach(foto => {
                     const caminhoFoto = path.join(caminhoUsuario, foto);
                     const statusFoto = fs.statSync(caminhoFoto);
-                    
-                    // Usa mtimeMs (data de modificação/gravação real do arquivo no disco)
                     if (AGORA - statusFoto.mtimeMs > SETE_DIAS_MS) {
                         fs.unlinkSync(caminhoFoto);
-                        console.log(`🗑️ [LIMPEZA] Foto antiga com mais de 1 semana removida: ${foto} (Usuário: ${usuario})`);
+                        console.log(`🗑️ [LIMPEZA] Foto antiga removida: ${foto}`);
                     }
                 });
             }
         });
     } catch (err) {
-        console.error("❌ Erro ao processar a limpeza semanal de fotos:", err);
+        console.error("❌ Erro na limpeza de fotos:", err);
     }
 }
-
-// Executa a verificação assim que o servidor liga
 limparFotosAntigas();
-// Configura para rodar de forma invisível em segundo plano uma vez a cada 24 horas consecutivas
 setInterval(limparFotosAntigas, 24 * 60 * 60 * 1000);
 
-// Configura o multer para salvar os arquivos diretamente na pasta dinâmica estável
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, UPLOADS_DIR),
     filename: (req, file, cb) => {
@@ -83,107 +140,51 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// ROTA: Registro de Dispositivos (Vincula o Usuário à Câmera)
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
-
-    if (!user_id || !mac_address) {
-        return res.status(400).send('Erro: Dados incompletos para registro.');
-    }
-
+    if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
-
-        const deviceInfo = {
-            user_id,
-            mac_address,
-            device_model: device_model || "ESP32-CAM OmniGuardian",
-            last_seen: new Date().toISOString()
-        };
-
-        if (deviceIndex >= 0) {
-            dbData[deviceIndex] = deviceInfo;
-        } else {
-            dbData.push(deviceInfo);
-        }
-
+        const deviceInfo = { user_id, mac_address, device_model: device_model || "ESP32-CAM OmniGuardian", last_seen: new Date().toISOString() };
+        if (deviceIndex >= 0) dbData[deviceIndex] = deviceInfo; else dbData.push(deviceInfo);
         fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-        console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
-        res.status(200).json({ status: "success", message: "Dispositivo registrado com sucesso!" });
-    } catch (err) {
-        res.status(500).send('Erro ao salvar dispositivo.');
-    }
+        res.status(200).json({ status: "success" });
+    } catch (err) { res.status(500).send('Erro no registro.'); }
 });
 
-// ROTA: Recebe a foto, identifica o usuário dono do MAC e organiza em pastas
 app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     const macAddress = req.body.mac_address;
     const file = req.file;
-
-    console.log(`\n📸 [API] Foto recebida da Câmera MAC: ${macAddress || 'Desconhecido'}`);
-
-    if (!file) {
-        return res.status(400).send('Erro: Arquivo de imagem ausente.');
-    }
-
+    if (!file) return res.status(400).send('Imagem ausente.');
     let userId = 'usuario_desconhecido';
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
-        if (linkCorrespondente && linkCorrespondente.user_id) {
-            userId = linkCorrespondente.user_id;
-        }
-    } catch (e) {
-        console.error("⚠️ Erro ao ler banco de dados para organizar fotos.");
-    }
-
+        if (linkCorrespondente) userId = linkCorrespondente.user_id;
+    } catch (e) {}
     const pastaDoUsuario = path.join(UPLOADS_DIR, userId);
-
-    if (!fs.existsSync(pastaDoUsuario)) {
-        fs.mkdirSync(pastaDoUsuario, { recursive: true });
-        console.log(`📁 [API] Nova pasta criada para o usuário: ${userId}`);
-    }
-
-    const caminhoFinalDoArquivo = path.join(pastaDoUsuario, file.filename);
-
-    fs.rename(file.path, caminhoFinalDoArquivo, (err) => {
-        if (err) {
-            console.error(`❌ [API] Erro ao organizar arquivo na pasta do usuário:`, err);
-            return res.status(500).send('Erro interno ao processar e salvar imagem.');
-        }
-
-        console.log(`💾 [API] Foto organizada com sucesso! Armazenada em: ${caminhoFinalDoArquivo}`);
+    if (!fs.existsSync(pastaDoUsuario)) fs.mkdirSync(pastaDoUsuario, { recursive: true });
+    fs.rename(file.path, path.join(pastaDoUsuario, file.filename), (err) => {
+        if (err) return res.status(500).send('Erro interno.');
         res.status(200).send('OK');
     });
 });
 
-// ROTA: Puxar relatório geral de conexões E arquivos salvos no navegador (JSON)
 app.get('/api/iot/overview', (req, res) => {
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         let estruturaPastas = {};
-        
         if (fs.existsSync(UPLOADS_DIR)) {
-            const usuarios = fs.readdirSync(UPLOADS_DIR);
-            usuarios.forEach(usuario => {
+            fs.readdirSync(UPLOADS_DIR).forEach(usuario => {
                 const caminhoUsuario = path.join(UPLOADS_DIR, usuario);
-                if (fs.statSync(caminhoUsuario).isDirectory()) {
-                    estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
-                }
+                if (fs.statSync(caminhoUsuario).isDirectory()) estruturaPastas[usuario] = fs.readdirSync(caminhoUsuario);
             });
         }
-
-        res.status(200).json({
-            dispositivos_registrados: dbData,
-            arquivos_armazenados: estruturaPastas
-        });
-    } catch (err) {
-        res.status(500).json({ erro: "Erro ao gerar relatório geral." });
-    }
+        res.status(200).json({ dispositivos_registrados: dbData, arquivos_armazenados: estruturaPastas });
+    } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
-// ROTA DO DASHBOARD: Interface Web em Dark Mode estilizada com TailwindCSS
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -212,7 +213,6 @@ app.get('/dashboard', (req, res) => {
         </header>
 
         <main class="max-w-7xl mx-auto px-4 py-8 space-y-12">
-            
             <section>
                 <div class="flex items-center gap-2 mb-6">
                     <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
@@ -229,10 +229,46 @@ app.get('/dashboard', (req, res) => {
                     <p class="text-sm text-slate-500">Carregando imagens...</p>
                 </div>
             </section>
-
         </main>
 
         <script>
+            // Função para alternar o estado do Streaming de Vídeo
+            function toggleLiveStream(mac) {
+                const container = document.getElementById(\`video-container-\${mac.replace(/:/g, '')}\`);
+                const img = document.getElementById(\`video-feed-\${mac.replace(/:/g, '')}\`);
+                const btn = document.getElementById(\`btn-stream-\${mac.replace(/:/g, '')}\`);
+                
+                if (container.classList.contains('hidden')) {
+                    fetch('/api/iot/toggle-stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mac_address: mac, action: 'start' })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        container.classList.remove('hidden');
+                        img.src = \`/api/iot/live/\${mac}\`;
+                        btn.innerHTML = '🛑 Encerrar Monitoramento';
+                        btn.classList.replace('bg-indigo-600', 'bg-red-600');
+                        btn.classList.replace('hover:bg-indigo-500', 'hover:bg-red-500');
+                    });
+                } else {
+                    fetch('/api/iot/toggle-stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mac_address: mac, action: 'stop' })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        container.classList.add('hidden');
+                        img.src = '';
+                        btn.innerHTML = '🎥 Ver Câmera Ao Vivo';
+                        btn.classList.replace('bg-red-600', 'bg-indigo-600');
+                        btn.classList.replace('hover:bg-red-500', 'hover:bg-indigo-500');
+                    });
+                }
+            }
+
             function carregarDados() {
                 fetch('/api/iot/overview')
                     .then(res => res.json())
@@ -245,6 +281,7 @@ app.get('/dashboard', (req, res) => {
                         } else {
                             data.dispositivos_registrados.forEach(disp => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
+                                const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                                 gridDisp.innerHTML += \`
                                     <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">
                                         <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>
@@ -266,6 +303,16 @@ app.get('/dashboard', (req, res) => {
                                                 <p class="text-slate-300 font-medium">\${dataFormatada}</p>
                                             </div>
                                         </div>
+                                        
+                                        <div class="pt-2">
+                                            <button onclick="toggleLiveStream('\${disp.mac_address}')" id="btn-stream-\${macIdSanitizado}" class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 flex items-center justify-center gap-1">
+                                                🎥 Ver Câmera Ao Vivo
+                                            </button>
+                                            <div id="video-container-\${macIdSanitizado}" class="hidden mt-3 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-video relative flex items-center justify-center">
+                                                <img id="video-feed-\${macIdSanitizado}" class="w-full h-full object-contain" src="" alt="Live feed" />
+                                                <span class="absolute top-2 left-2 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">LIVE</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 \`;
                             });
@@ -273,52 +320,43 @@ app.get('/dashboard', (req, res) => {
 
                         const containerUsers = document.getElementById('container-usuarios');
                         containerUsers.innerHTML = '';
-
                         const listaUsuarios = Object.keys(data.arquivos_armazenados);
                         
                         if (listaUsuarios.length === 0) {
-                            containerUsers.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma imagem armazenada no servidor.</p>';
+                            containerUsers.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma imagem armazenada.</p>';
                             return;
                         }
 
                         listaUsuarios.forEach(userId => {
                             const fotos = data.arquivos_armazenados[userId];
-                            
                             let htmlGaleria = \`
                                 <div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">
                                     <div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">
                                         <span class="text-base">📁</span>
-                                        <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\  \${userId}</span></h3>
+                                        <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\${userId}</span></h3>
                                         <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">\${fotos.length} fotos</span>
                                     </div>
-                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                            \`;
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"> \`;
 
                             if (fotos.length === 0) {
-                                htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Esta pasta está vazia por enquanto.</p>';
+                                htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Pasta vazia.</p>';
                             } else {
-                                // ✅ CORRIGIDO: Removidas as quebras de strings com espaços ocultos que quebravam as tags de imagem
                                 [...fotos].reverse().forEach(fotoNome => {
                                     htmlGaleria += \`
                                         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
                                             <div class="aspect-video bg-slate-950 overflow-hidden relative">
                                                 <img src="/uploads/\${userId}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
                                             </div>
-                                            <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">
-                                                \${fotoNome}
-                                            </div>
-                                        </div>
-                                    \`;
+                                            <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">\${fotoNome}</div>
+                                        </div> \`;
                                 });
                             }
-
                             htmlGaleria += \`</div></div>\`;
                             containerUsers.innerHTML += htmlGaleria;
                         });
                     })
-                    .catch(err => console.error("Erro ao carregar dados:", err));
+                    .catch(err => console.error(err));
             }
-
             carregarDados();
             setInterval(carregarDados, 15000);
         </script>
@@ -327,6 +365,4 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`);
-});
+app.listen(PORT, () => { console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`); });
