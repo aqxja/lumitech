@@ -238,9 +238,9 @@ app.get('/dashboard', (req, res) => {
 
         <script>
             function toggleLiveStream(mac) {
-                const container = document.getElementById(\`video-container-\${mac.replace(/:/g, '')}\`);
-                const img = document.getElementById(\`video-feed-\${mac.replace(/:/g, '')}\`);
-                const btn = document.getElementById(\`btn-stream-\${mac.replace(/:/g, '')}\`);
+                const container = document.getElementById('video-container-' + mac.replace(/:/g, ''));
+                const img = document.getElementById('video-feed-' + mac.replace(/:/g, ''));
+                const btn = document.getElementById('btn-stream-' + mac.replace(/:/g, ''));
                 
                 if (container.classList.contains('hidden')) {
                     fetch('/api/iot/toggle-stream', {
@@ -251,7 +251,7 @@ app.get('/dashboard', (req, res) => {
                     .then(res => res.json())
                     .then(data => {
                         container.classList.remove('hidden');
-                        img.src = \`/api/iot/live/\${mac}\`;
+                        img.src = '/api/iot/live/' + mac;
                         btn.innerHTML = '🛑 Encerrar Monitoramento';
                         btn.classList.replace('bg-indigo-600', 'bg-red-600');
                         btn.classList.replace('hover:bg-indigo-500', 'hover:bg-red-500');
@@ -287,8 +287,7 @@ app.get('/dashboard', (req, res) => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                                 const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                                 
-                                // ✅ CORRIGIDO: Removido o caractere de escape '\text' que quebrava as strings
-                                gridDisp.innerHTML += \`
+                                gridDisp.innerHTML += `
                                     <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">
                                         <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>
                                         <div class="flex justify-between items-start">
@@ -302,7 +301,7 @@ app.get('/dashboard', (req, res) => {
                                         <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>
-                                                <p class="font-mono text-slate-300 font-medium">\-- \${disp.mac_address}</p>
+                                                <p class="font-mono text-slate-300 font-medium">\${disp.mac_address}</p>
                                             </div>
                                             <div>
                                                 <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>
@@ -319,7 +318,7 @@ app.get('/dashboard', (req, res) => {
                                             </div>
                                         </div>
                                     </div>
-                                \`;
+                                `;
                             });
                         }
 
@@ -334,20 +333,20 @@ app.get('/dashboard', (req, res) => {
 
                         listaUsuarios.forEach(userId => {
                             const fotos = data.arquivos_armazenados[userId];
-                            let htmlGaleria = \`
+                            let htmlGaleria = `
                                 <div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">
                                     <div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">
                                         <span class="text-base">📁</span>
                                         <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\${userId}</span></h3>
                                         <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">\${fotos.length} fotos</span>
                                     </div>
-                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"> \`;
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"> `;
 
                             if (fotos.length === 0) {
                                 htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Nenhuma foto tirada hoje. Aguardando os alarmes (7h, 12h, 19h).</p>';
                             } else {
                                 [...fotos].reverse().forEach(fotoNome => {
-                                    htmlGaleria += \`
+                                    htmlGaleria += `
                                         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
                                             <div class="aspect-video bg-slate-950 overflow-hidden relative">
                                                 <img src="/uploads/\${userId}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
@@ -356,7 +355,7 @@ app.get('/dashboard', (req, res) => {
                                         </div> \`;
                                 });
                             }
-                            htmlGaleria += \`</div></div>\`;
+                            htmlGaleria += `</div></div>`;
                             containerUsers.innerHTML += htmlGaleria;
                         });
                     })
