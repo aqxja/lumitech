@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🛡️ CONFIGURAÇÃO DE DIRETÓRIO PERSISTENTE
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
@@ -29,7 +28,6 @@ try {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// 🎛️ CONTROLE DE STREAMING DE VÍDEO EM TEMPO REAL (MJPEG)
 const streamStatus = {};  
 const liveClients = {};   
 
@@ -60,14 +58,12 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
         return res.status(400).send('Dados de frame inválidos.');
     }
 
-    // ✅ AUTO-REGISTRO INTELIGENTE: Caso o Render tenha limpado o arquivo dispositivos.json devido ao sleep,
-    // interceptamos o frame e reinjetamos o mapeamento do dispositivo na hora para restaurar o Dashboard!
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const existe = dbData.some(item => item.mac_address === macAddress);
         if (!existe) {
             const deviceInfo = { 
-                user_id: "USR-8742", // ID padrão estável do seu app Android
+                user_id: "USR-8742", 
                 mac_address: macAddress, 
                 device_model: "XIAO ESP32S3 OmniGuardian (Auto-Recuperado)", 
                 last_seen: new Date().toISOString() 
@@ -182,14 +178,13 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     const file = req.file;
     if (!file) return res.status(400).send('Imagem ausente.');
     
-    let userId = 'USR-8742'; // Usar o seu ID como fallback padrão
+    let userId = 'USR-8742'; 
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
         if (linkCorrespondente) {
             userId = linkCorrespondente.user_id;
         } else {
-            // ✅ AUTO-REGISTRO EM FOTO FIXA: Garante o vínculo se a foto chegar antes do registro formal
             const deviceInfo = { 
                 user_id: userId, 
                 mac_address: macAddress, 
@@ -198,7 +193,6 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
             };
             dbData.push(deviceInfo);
             fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-            console.log(`⚠️ [SERVER] Dispositivo ${macAddress} registrado dinamicamente via envio de foto fixa.`);
         }
     } catch (e) {}
     
@@ -224,6 +218,7 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
+// 🌐 REESTRUTURAÇÃO DO DASHBOARD: Vídeo e Fotos acoplados no mesmo bloco por Câmera
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -231,7 +226,7 @@ app.get('/dashboard', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>LumiTrap - Painel de Controle</title>
+        <title>LumiTrap - Central Unificada</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
         <style>body { font-family: 'Plus Jakarta Sans', sans-serif; }</style>
@@ -243,30 +238,22 @@ app.get('/dashboard', (req, res) => {
                     <span class="text-2xl">🛡️</span>
                     <div>
                         <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">LumiTrap</h1>
-                        <p class="text-xs text-slate-400">Monitoramento em Tempo Real</p>
+                        <p class="text-xs text-slate-400">Painel Geral de Dispositivos</p>
                     </div>
                 </div>
-                <button onclick="carregarDados()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-sm font-semibold rounded-lg transition shadow-lg shadow-blue-600/20 active:scale-95">🔄 Atualizar Painel</button>
+                <button onclick="carregarDados()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-sm font-semibold rounded-lg transition shadow-lg shadow-blue-600/20 active:scale-95">🔄 Atualizar Central</button>
             </div>
         </header>
 
-        <main class="max-w-7xl mx-auto px-4 py-8 space-y-12">
-            <section>
-                <div class="flex items-center gap-2 mb-6">
-                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    <h2 class="text-lg font-bold text-slate-300">Armadilhas Ativas</h2>
-                </div>
-                <div id="grid-dispositivos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <p class="text-sm text-slate-500 col-span-full">Carregando dispositivos...</p>
-                </div>
-            </section>
-
-            <section>
-                <h2 class="text-lg font-bold text-slate-300 mb-6 flex items-center gap-2">📸 Capturas de Imagem Recentes</h2>
-                <div id="container-usuarios" class="space-y-10">
-                    <p class="text-sm text-slate-500">Carregando imagens...</p>
-                </div>
-            </section>
+        <main class="max-w-7xl mx-auto px-4 py-8">
+            <div class="flex items-center gap-2 mb-6">
+                <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                <h2 class="text-lg font-bold text-slate-300">Sua Rede OmniGuardian</h2>
+            </div>
+            
+            <div id="central-dispositivos" class="flex flex-col gap-8">
+                <p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Indexando barramento de hardware...</p>
+            </div>
         </main>
 
         <script>
@@ -285,7 +272,7 @@ app.get('/dashboard', (req, res) => {
                     .then(data => {
                         container.classList.remove('hidden');
                         img.src = '/api/iot/live/' + mac;
-                        btn.innerHTML = '🛑 Encerrar Monitoramento';
+                        btn.innerHTML = '🛑 Encerrar Transmissão';
                         btn.classList.replace('bg-indigo-600', 'bg-red-600');
                         btn.classList.replace('hover:bg-indigo-500', 'hover:bg-red-500');
                     });
@@ -299,7 +286,7 @@ app.get('/dashboard', (req, res) => {
                     .then(data => {
                         container.classList.add('hidden');
                         img.src = '';
-                        btn.innerHTML = '🎥 Ver Câmera Ao Vivo';
+                        btn.innerHTML = '🎥 Abrir Transmissão Ao Vivo';
                         btn.classList.replace('bg-red-600', 'bg-indigo-600');
                         btn.classList.replace('hover:bg-red-500', 'hover:bg-indigo-500');
                     });
@@ -310,88 +297,78 @@ app.get('/dashboard', (req, res) => {
                 fetch('/api/iot/overview')
                     .then(res => res.json())
                     .then(data => {
-                        const gridDisp = document.getElementById('grid-dispositivos');
-                        gridDisp.innerHTML = '';
+                        const central = document.getElementById('central-dispositivos');
+                        central.innerHTML = '';
                         
                         if (data.dispositivos_registrados.length === 0) {
-                            gridDisp.innerHTML = '<p class="text-sm text-slate-500 col-span-full bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhum hardware registrou conexão ainda.</p>';
-                        } else {
-                            data.dispositivos_registrados.forEach(disp => {
-                                const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
-                                const macIdSanitizado = disp.mac_address.replace(/:/g, '');
-                                
-                                gridDisp.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">' +
-                                '    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>' +
-                                '    <div class="flex justify-between items-start">' +
-                                '        <span class="text-xs font-bold px-2.5 py-1 bg-slate-800 border border-slate-700 text-blue-400 rounded-md">' + disp.device_model + '</span>' +
-                                '        <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">● Online</span>' +
-                                '    </div>' +
-                                '    <div>' +
-                                '        <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>' +
-                                '        <p class="text-base font-bold text-slate-200">' + disp.user_id + '</p>' +
-                                '    </div>' +
-                                '    <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">' +
-                                '        <div>' +
-                                '            <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>' +
-                                '            <p class="font-mono text-slate-300 font-medium">' + disp.mac_address + '</p>' +
-                                '        </div>' +
-                                '        <div>' +
-                                '            <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>' +
-                                '            <p class="text-slate-300 font-medium">' + dataFormatada + '</p>' +
-                                '        </div>' +
-                                '    </div>' +
-                                '    <div class="pt-2">' +
-                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 flex items-center justify-center gap-1">' +
-                                '            🎥 Ver Câmera Ao Vivo' +
-                                '        </button>' +
-                                '        <div id="video-container-' + macIdSanitizado + '" class="hidden mt-3 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-video relative flex items-center justify-center">' +
-                                '            <img id="video-feed-' + macIdSanitizado + '" class="w-full h-full object-contain" src="" alt="Live feed" />' +
-                                '            <span class="absolute top-2 left-2 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">LIVE</span>' +
-                                '        </div>' +
-                                '    </div>' +
-                                '</div>';
-                            });
-                        }
-
-                        const containerUsers = document.getElementById('container-usuarios');
-                        containerUsers.innerHTML = '';
-                        const listaUsuarios = Object.keys(data.arquivos_armazenados);
-                        
-                        if (listaUsuarios.length === 0) {
-                            containerUsers.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma imagem armazenada.</p>';
+                            central.innerHTML = '<p class="text-sm text-slate-500 bg-slate-900 border border-slate-800 p-4 rounded-xl">Nenhuma câmera vinculada ou ativa no momento. Conecte seu dispositivo via App Android.</p>';
                             return;
                         }
 
-                        listaUsuarios.forEach(userId => {
-                            const fotos = data.arquivos_armazenados[userId];
-                            let htmlGaleria = '<div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">' +
-                                '<div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">' +
-                                '    <span class="text-base">📁</span>' +
-                                '    <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">' + userId + '</span></h3>' +
-                                '    <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">' + fotos.length + ' fotos</span>' +
-                                '</div>' +
-                                '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">';
-
-                            if (fotos.length === 0) {
-                                htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Nenhuma foto tirada hoje. Aguardando os alarmes (7h, 12h, 19h).</p>';
+                        data.dispositivos_registrados.forEach(disp => {
+                            const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
+                            const macIdSanitizado = disp.mac_address.replace(/:/g, '');
+                            
+                            // Busca as fotos salvas pertencentes à pasta deste Usuário específico
+                            const fotosUsuario = data.arquivos_armazenados[disp.user_id] || [];
+                            
+                            // Monta o HTML da galeria que fica LOGO ABAIXO da filmagem
+                            let htmlFotos = '';
+                            if (fotosUsuario.length === 0) {
+                                htmlFotos = '<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura em anexo nesta pasta. Aguardando disparo automático (07:00, 12:00, 19:00).</p>';
                             } else {
-                                [...fotos].reverse().forEach(fotoNome => {
-                                    htmlGaleria += '<div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">' +
-                                        '    <div class="aspect-video bg-slate-950 overflow-hidden relative">' +
-                                        '        <img src="/uploads/' + userId + '/' + fotoNome + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />' +
+                                htmlFotos = '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">';
+                                [...fotosUsuario].reverse().forEach(fotoNome => {
+                                    htmlFotos += '<div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">' +
+                                        '    <div class="aspect-video bg-black overflow-hidden relative">' +
+                                        '        <img src="/uploads/' + disp.user_id + '/' + fotoNome + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura Fixa" />' +
                                         '    </div>' +
-                                        '    <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">' + fotoNome + '</div>' +
+                                        '    <div class="p-2 text-[10px] text-slate-400 font-mono truncate">' + fotoNome + '</div>' +
                                         '</div>';
                                 });
+                                htmlFotos += '</div>';
                             }
-                            htmlGaleria += '</div></div>';
-                            containerUsers.innerHTML += htmlGaleria;
+
+                            // Renderiza a estrutura completa solicitada (Câmera -> Transmissão -> Pasta de fotos abaixo)
+                            central.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">' +
+                                '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">' +
+                                '        <div>' +
+                                '            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 Dispositivo: ' + disp.user_id + '</h3>' +
+                                '            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">' + disp.device_model + '</span> | MAC: <span class="font-mono text-slate-300">' + disp.mac_address + '</span></p>' +
+                                '        </div>' +
+                                '        <div class="text-right text-xs">' +
+                                '            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Pronto para Operar</span>' +
+                                '            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: ' + dataFormatada + '</p>' +
+                                '        </div>' +
+                                '    </div>' +
+                                '    ' +
+                                '    ' +
+                                '    <div class="space-y-3">' +
+                                '        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>' +
+                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">' +
+                                '            🎥 Abrir Transmissão Ao Vivo' +
+                                '        </button>' +
+                                '        <div id="video-container-' + macIdSanitizado + '" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">' +
+                                '            <img id="video-feed-' + macIdSanitizado + '" class="w-full h-full object-contain" src="" alt="Live feed" />' +
+                                '            <span class="absolute top-3 left-3 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">STREAM ATIVO</span>' +
+                                '        </div>' +
+                                '    </div>' +
+                                '    ' +
+                                '    ' +
+                                '    <div class="pt-4 border-t border-slate-800/60 space-y-3">' +
+                                '        <div class="flex items-center gap-2">' +
+                                '            <h4 class="text-sm font-semibold text-slate-300">📁 Pasta de Armazenamento Coletado (' + disp.user_id + ')</h4>' +
+                                '            <span class="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-md font-medium">' + fotosUsuario.length + ' arquivos</span>' +
+                                '        </div>' +
+                                '        ' + htmlFotos +
+                                '    </div>' +
+                                '</div>';
                         });
                     })
-                    .catch(err => console.error(err));
+                    .catch(err => console.error("Erro ao processar central:", err));
             }
             carregarDados();
-            setInterval(carregarDados, 15000);
+            setInterval(carregarDados, 12000);
         </script>
     </body>
     </html>
