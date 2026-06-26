@@ -132,7 +132,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// ROTA DE REGISTRO: Vincula o ID e cria a pasta na hora
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
     if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
@@ -287,38 +286,37 @@ app.get('/dashboard', (req, res) => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                                 const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                                 
-                                gridDisp.innerHTML += `
-                                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">
-                                        <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>
-                                        <div class="flex justify-between items-start">
-                                            <span class="text-xs font-bold px-2.5 py-1 bg-slate-800 border border-slate-700 text-blue-400 rounded-md">\${disp.device_model}</span>
-                                            <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">● Online</span>
-                                        </div>
-                                        <div>
-                                            <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>
-                                            <p class="text-base font-bold text-slate-200">\${disp.user_id}</p>
-                                        </div>
-                                        <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
-                                            <div>
-                                                <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>
-                                                <p class="font-mono text-slate-300 font-medium">\${disp.mac_address}</p>
-                                            </div>
-                                            <div>
-                                                <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>
-                                                <p class="text-slate-300 font-medium">\${dataFormatada}</p>
-                                            </div>
-                                        </div>
-                                        <div class="pt-2">
-                                            <button onclick="toggleLiveStream('\${disp.mac_address}')" id="btn-stream-\${macIdSanitizado}" class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 flex items-center justify-center gap-1">
-                                                🎥 Ver Câmera Ao Vivo
-                                            </button>
-                                            <div id="video-container-\${macIdSanitizado}" class="hidden mt-3 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-video relative flex items-center justify-center">
-                                                <img id="video-feed-\${macIdSanitizado}" class="w-full h-full object-contain" src="" alt="Live feed" />
-                                                <span class="absolute top-2 left-2 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">LIVE</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                `;
+                                // ✅ BLINDADO: Concatenação segura imune a bugs de string literal
+                                gridDisp.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">' +
+                                '    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>' +
+                                '    <div class="flex justify-between items-start">' +
+                                '        <span class="text-xs font-bold px-2.5 py-1 bg-slate-800 border border-slate-700 text-blue-400 rounded-md">' + disp.device_model + '</span>' +
+                                '        <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">● Online</span>' +
+                                '    </div>' +
+                                '    <div>' +
+                                '        <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>' +
+                                '        <p class="text-base font-bold text-slate-200">' + disp.user_id + '</p>' +
+                                '    </div>' +
+                                '    <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">' +
+                                '        <div>' +
+                                '            <p class="text-[10px] text-slate-500">ENDEREÇO MAC</p>' +
+                                '            <p class="font-mono text-slate-300 font-medium">' + disp.mac_address + '</p>' +
+                                '        </div>' +
+                                '        <div>' +
+                                '            <p class="text-[10px] text-slate-500">ÚLTIMO SINAL</p>' +
+                                '            <p class="text-slate-300 font-medium">' + dataFormatada + '</p>' +
+                                '        </div>' +
+                                '    </div>' +
+                                '    <div class="pt-2">' +
+                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 flex items-center justify-center gap-1">' +
+                                '            🎥 Ver Câmera Ao Vivo' +
+                                '        </button>' +
+                                '        <div id="video-container-' + macIdSanitizado + '" class="hidden mt-3 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-video relative flex items-center justify-center">' +
+                                '            <img id="video-feed-' + macIdSanitizado + '" class="w-full h-full object-contain" src="" alt="Live feed" />' +
+                                '            <span class="absolute top-2 left-2 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">LIVE</span>' +
+                                '        </div>' +
+                                '    </div>' +
+                                '</div>';
                             });
                         }
 
@@ -333,29 +331,27 @@ app.get('/dashboard', (req, res) => {
 
                         listaUsuarios.forEach(userId => {
                             const fotos = data.arquivos_armazenados[userId];
-                            let htmlGaleria = `
-                                <div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">
-                                    <div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">
-                                        <span class="text-base">📁</span>
-                                        <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">\${userId}</span></h3>
-                                        <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">\${fotos.length} fotos</span>
-                                    </div>
-                                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"> `;
+                            let htmlGaleria = '<div class="bg-slate-900/40 border border-slate-900 p-6 rounded-2xl space-y-4">' +
+                                '<div class="flex items-center gap-2 border-b border-slate-800/60 pb-3">' +
+                                '    <span class="text-base">📁</span>' +
+                                '    <h3 class="font-bold text-slate-200 text-base">Pasta do Usuário: <span class="text-indigo-400">' + userId + '</span></h3>' +
+                                '    <span class="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-medium">' + fotos.length + ' fotos</span>' +
+                                '</div>' +
+                                '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">';
 
                             if (fotos.length === 0) {
                                 htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Nenhuma foto tirada hoje. Aguardando os alarmes (7h, 12h, 19h).</p>';
                             } else {
                                 [...fotos].reverse().forEach(fotoNome => {
-                                    htmlGaleria += `
-                                        <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">
-                                            <div class="aspect-video bg-slate-950 overflow-hidden relative">
-                                                <img src="/uploads/\${userId}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />
-                                            </div>
-                                            <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">\${fotoNome}</div>
-                                        </div> \`;
+                                    htmlGaleria += '<div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-md">' +
+                                        '    <div class="aspect-video bg-slate-950 overflow-hidden relative">' +
+                                        '        <img src="/uploads/' + userId + '/' + fotoNome + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura IoT" />' +
+                                        '    </div>' +
+                                        '    <div class="p-2.5 text-[10px] text-slate-400 bg-slate-900/90 font-mono truncate">' + fotoNome + '</div>' +
+                                        '</div>';
                                 });
                             }
-                            htmlGaleria += `</div></div>`;
+                            htmlGaleria += '</div></div>';
                             containerUsers.innerHTML += htmlGaleria;
                         });
                     })
@@ -369,4 +365,4 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-app.listen(PORT, () => { console.log(`🚀 Servidor OmniGuardian Online na porta ${PORT}!`); });
+app.listen(PORT, () => { console.log(`🚀 Servidor LumiTrap Online na porta ${PORT}!`); });
