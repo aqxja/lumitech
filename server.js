@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🛡️ CONFIGURAÇÃO DE DIRETÓRIO SEGURO:
+// CONFIGURAÇÃO DE DIRETÓRIO:
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'dispositivos.json');
@@ -33,21 +33,19 @@ try {
 const streamStatus = {};  
 const liveClients = {};   
 
-// Endpoint para o ESP32 checar se o painel web está solicitando transmissão de vídeo
 app.get('/api/iot/stream-status', (req, res) => {
     const mac = req.query.mac;
     res.json({ stream: !!streamStatus[mac] });
 });
 
-// Endpoint chamado pelo Dashboard para ligar/desligar o streaming da armadilha
 app.post('/api/iot/toggle-stream', (req, res) => {
     const { mac_address, action } = req.body;
     if (action === 'start') {
         streamStatus[mac_address] = true;
-        console.log(`🎥 [STREAM] Transmissão de vídeo iniciada para: ${mac_address}`);
+        console.log(`\n🎥 [STREAM] Transmissão de vídeo iniciada para: ${mac_address}`);
     } else {
         streamStatus[mac_address] = false;
-        console.log(`🛑 [STREAM] Transmissão de vídeo encerrada para: ${mac_address}`);
+        console.log(`\n🛑 [STREAM] Transmissão de vídeo encerrada para: ${mac_address}`);
         if (liveClients[mac_address]) {
             liveClients[mac_address].forEach(c => { try { c.end(); } catch(e){} });
             liveClients[mac_address] = [];
@@ -56,14 +54,12 @@ app.post('/api/iot/toggle-stream', (req, res) => {
     res.json({ status: "success", stream: streamStatus[mac_address] });
 });
 
-// Endpoint ultra-rápido para o ESP32 descarregar os buffers binários jpegs brutos do vídeo
 app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500kb' }), (req, res) => {
     const macAddress = req.headers['x-mac-address'];
     if (!macAddress || !req.body || req.body.length === 0) {
         return res.status(400).send('Dados de frame inválidos.');
     }
 
-    // Se houver navegadores sintonizados no dashboard, repassa o frame imediatamente
     if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
         const frame = req.body;
         liveClients[macAddress].forEach(clientRes => {
@@ -73,15 +69,12 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
                 clientRes.write(`Content-Length: ${frame.length}\r\n\r\n`);
                 clientRes.write(frame);
                 clientRes.write(`\r\n`);
-            } catch(e) {
-                // Remove conexões corrompidas
-            }
+            } catch(e) {}
         });
     }
     res.send('OK');
 });
 
-// Rota que o Dashboard pluga na tag <img> para renderizar o vídeo contínuo por boundaries
 app.get('/api/iot/live/:mac', (req, res) => {
     const mac = req.params.mac;
     
@@ -96,14 +89,13 @@ app.get('/api/iot/live/:mac', (req, res) => {
     req.on('close', () => {
         liveClients[mac] = liveClients[mac].filter(c => c !== res);
         if (liveClients[mac].length === 0) {
-            // Se o usuário fechou o modal ou saiu da página, manda o ESP32 desligar o sensor
             streamStatus[mac] = false;
             console.log(`🛑 [STREAM] Sem espectadores na página. Desligando streaming do MAC: ${mac}`);
         }
     });
 });
 
-// 🧹 ROTINA DE LIMPEZA CRÍTICA SEMANAL
+// 🧹 ROTINA DE LIMPEZA MANTENDO POR 1 SEMANA
 function limparFotosAntigas() {
     if (!fs.existsSync(UPLOADS_DIR)) return;
     const AGORA = Date.now();
@@ -140,17 +132,32 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// ROTA ALTERADA: Cria a pasta do usuário dinamicamente já no momento do registro via App
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
     if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
+    
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
         const deviceInfo = { user_id, mac_address, device_model: device_model || "ESP32-CAM OmniGuardian", last_seen: new Date().toISOString() };
+        
         if (deviceIndex >= 0) dbData[deviceIndex] = deviceInfo; else dbData.push(deviceInfo);
         fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+        console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
+
+        // ✅ INOVAÇÃO AQUI: Garante que a pasta exista na mesma hora do pareamento!
+        const pastaDoUsuario = path.join(UPLOADS_DIR, user_id);
+        if (!fs.existsSync(pastaDoUsuario)) {
+            fs.mkdirSync(pastaDoUsuario, { recursive: true });
+            console.log(`📁 [API] Pasta criada antecipadamente para exibir no Dashboard: ${user_id}`);
+        }
+
         res.status(200).json({ status: "success" });
-    } catch (err) { res.status(500).send('Erro no registro.'); }
+    } catch (err) { 
+        console.error(err);
+        res.status(500).send('Erro no registro.'); 
+    }
 });
 
 app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
@@ -198,7 +205,6 @@ app.get('/dashboard', (req, res) => {
         <style>body { font-family: 'Plus Jakarta Sans', sans-serif; }</style>
     </head>
     <body class="bg-slate-950 text-slate-100 min-h-screen">
-        
         <header class="border-b border-slate-900 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
             <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
                 <div class="flex items-center gap-3">
@@ -232,7 +238,6 @@ app.get('/dashboard', (req, res) => {
         </main>
 
         <script>
-            // Função para alternar o estado do Streaming de Vídeo
             function toggleLiveStream(mac) {
                 const container = document.getElementById(\`video-container-\${mac.replace(/:/g, '')}\`);
                 const img = document.getElementById(\`video-feed-\${mac.replace(/:/g, '')}\`);
@@ -291,7 +296,7 @@ app.get('/dashboard', (req, res) => {
                                         </div>
                                         <div>
                                             <p class="text-xs text-slate-400 font-medium">ID DO USUÁRIO</p>
-                                            <p class="text-base font-bold text-slate-200">\${disp.user_id}</p>
+                                            <p class="text-base font-bold text-slate-200">\text{\${disp.user_id}}\</p>
                                         </div>
                                         <div class="pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-2 text-xs text-slate-400">
                                             <div>
@@ -303,7 +308,6 @@ app.get('/dashboard', (req, res) => {
                                                 <p class="text-slate-300 font-medium">\${dataFormatada}</p>
                                             </div>
                                         </div>
-                                        
                                         <div class="pt-2">
                                             <button onclick="toggleLiveStream('\${disp.mac_address}')" id="btn-stream-\${macIdSanitizado}" class="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 flex items-center justify-center gap-1">
                                                 🎥 Ver Câmera Ao Vivo
@@ -339,7 +343,7 @@ app.get('/dashboard', (req, res) => {
                                     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"> \`;
 
                             if (fotos.length === 0) {
-                                htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Pasta vazia.</p>';
+                                htmlGaleria += '<p class="text-xs text-slate-500 col-span-full">Nenhuma foto tirada hoje. Aguardando os alarmes (7h, 12h, 19h).</p>';
                             } else {
                                 [...fotos].reverse().forEach(fotoNome => {
                                     htmlGaleria += \`
