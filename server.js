@@ -31,8 +31,8 @@ try {
 const streamStatus = {};  
 const liveClients = {};   
 
-// ✅ NOVO INTERCEPTOR INTERNO: Registra o hardware automaticamente se ele interagir com o servidor
-function registrarHardwarePorIdDeContingencia(mac, userId Opcional = 'USR-8742') {
+// ✅ CORRIGIDO: Retirado o espaço em branco da variável para eliminar o SyntaxError
+function registrarHardwarePorIdDeContingencia(mac, userIdOpcional = 'USR-8742') {
     if (!mac || mac.trim() === "") return;
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -61,7 +61,7 @@ function registrarHardwarePorIdDeContingencia(mac, userId Opcional = 'USR-8742')
 
 app.get('/api/iot/stream-status', (req, res) => {
     const mac = req.query.mac;
-    registrarHardwarePorIdDeContingencia(mac); // Garante a criação se a câmera pingar aqui
+    registrarHardwarePorIdDeContingencia(mac); 
     res.json({ stream: !!streamStatus[mac] });
 });
 
@@ -87,7 +87,7 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
         return res.status(400).send('Dados de frame inválidos.');
     }
 
-    registrarHardwarePorIdDeContingencia(macAddress); // Garante a criação se receber frames de vídeo
+    registrarHardwarePorIdDeContingencia(macAddress); 
 
     if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
         const frame = req.body;
@@ -192,7 +192,7 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     if (!file) return res.status(400).send('Imagem ausente.');
     
     let userId = 'USR-8742'; 
-    registrarHardwarePorIdDeContingencia(macAddress, userId); // Garante a criação se receber fotos fixas
+    registrarHardwarePorIdDeContingencia(macAddress, userId); 
 
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
