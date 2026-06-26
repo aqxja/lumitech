@@ -60,6 +60,26 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
         return res.status(400).send('Dados de frame inválidos.');
     }
 
+    // ✅ AUTO-REGISTRO INTELIGENTE: Caso o Render tenha limpado o arquivo dispositivos.json devido ao sleep,
+    // interceptamos o frame e reinjetamos o mapeamento do dispositivo na hora para restaurar o Dashboard!
+    try {
+        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        const existe = dbData.some(item => item.mac_address === macAddress);
+        if (!existe) {
+            const deviceInfo = { 
+                user_id: "USR-8742", // ID padrão estável do seu app Android
+                mac_address: macAddress, 
+                device_model: "XIAO ESP32S3 OmniGuardian (Auto-Recuperado)", 
+                last_seen: new Date().toISOString() 
+            };
+            dbData.push(deviceInfo);
+            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+            console.log(`⚠️ [SERVER] Dispositivo ${macAddress} remapeado dinamicamente via stream de dados.`);
+        }
+    } catch(e) {
+        console.error("Falha no auto-registro de contingência:", e);
+    }
+
     if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
         const frame = req.body;
         liveClients[macAddress].forEach(clientRes => {
@@ -95,7 +115,6 @@ app.get('/api/iot/live/:mac', (req, res) => {
     });
 });
 
-// 🧹 ROTINA DE LIMPEZA MANTENDO POR 1 SEMANA
 function limparFotosAntigas() {
     if (!fs.existsSync(UPLOADS_DIR)) return;
     const AGORA = Date.now();
@@ -132,7 +151,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// ROTA DE REGISTRO: Vincula o ID e cria a pasta na hora
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
     if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
@@ -163,12 +181,27 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     const macAddress = req.body.mac_address;
     const file = req.file;
     if (!file) return res.status(400).send('Imagem ausente.');
-    let userId = 'usuario_desconhecido';
+    
+    let userId = 'USR-8742'; // Usar o seu ID como fallback padrão
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
-        if (linkCorrespondente) userId = linkCorrespondente.user_id;
+        if (linkCorrespondente) {
+            userId = linkCorrespondente.user_id;
+        } else {
+            // ✅ AUTO-REGISTRO EM FOTO FIXA: Garante o vínculo se a foto chegar antes do registro formal
+            const deviceInfo = { 
+                user_id: userId, 
+                mac_address: macAddress, 
+                device_model: "XIAO ESP32S3 OmniGuardian (Auto-Recuperado)", 
+                last_seen: new Date().toISOString() 
+            };
+            dbData.push(deviceInfo);
+            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+            console.log(`⚠️ [SERVER] Dispositivo ${macAddress} registrado dinamicamente via envio de foto fixa.`);
+        }
     } catch (e) {}
+    
     const pastaDoUsuario = path.join(UPLOADS_DIR, userId);
     if (!fs.existsSync(pastaDoUsuario)) fs.mkdirSync(pastaDoUsuario, { recursive: true });
     fs.rename(file.path, path.join(pastaDoUsuario, file.filename), (err) => {
@@ -287,7 +320,6 @@ app.get('/dashboard', (req, res) => {
                                 const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                                 const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                                 
-                                // ✅ ALTERADO: Concatenação segura que elimina travamentos lógicos no navegador
                                 gridDisp.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3 relative overflow-hidden group">' +
                                 '    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-600/5 rounded-full blur-xl group-hover:bg-blue-600/10 transition"></div>' +
                                 '    <div class="flex justify-between items-start">' +
