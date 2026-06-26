@@ -18,7 +18,6 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// Lista em memória RAM de contingência para evitar perdas causadas pelo Sleep do Render
 let cacheDispositivosMemoria = [];
 
 function carregarBanco() {
@@ -85,30 +84,35 @@ app.post('/api/iot/toggle-stream', (req, res) => {
     res.json({ status: "success", stream: streamStatus[mac_address] });
 });
 
+// ✅ ATUALIZADO: Gerencia ativamente a ordem de START/STOP enviada de volta para o Arduino
 app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500kb' }), (req, res) => {
     const macAddress = req.headers['x-mac-address'];
     if (!macAddress || !req.body || req.body.length === 0) {
-        return res.status(400).send('Dados de frame inválidos.');
+        return res.send('STOP');
     }
 
     registrarHardwarePorIdDeContingencia(macAddress); 
 
-    if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
-        const frame = req.body;
-        liveClients[macAddress].forEach(clientRes => {
-            try {
-                clientRes.write(`--frame\r\n`);
-                clientRes.write(`Content-Type: image/jpeg\r\n`);
-                clientRes.write(`Content-Length: ${frame.length}\r\n\r\n`);
-                clientRes.write(frame);
-                clientRes.write(`\r\n`);
-            } catch(e) {}
-        });
+    // Se o botão não estiver ativo ou a página fechou, manda o Arduino parar imediatamente
+    if (!streamStatus[macAddress] || !liveClients[macAddress] || liveClients[macAddress].length === 0) {
+        streamStatus[macAddress] = false;
+        return res.send('STOP');
     }
-    res.send('OK');
+
+    const frame = req.body;
+    liveClients[macAddress].forEach(clientRes => {
+        try {
+            clientRes.write(`--frame\r\n`);
+            clientRes.write(`Content-Type: image/jpeg\r\n`);
+            clientRes.write(`Content-Length: ${frame.length}\r\n\r\n`);
+            clientRes.write(frame);
+            clientRes.write(`\r\n`);
+        } catch(e) {}
+    });
+
+    res.send('START'); // Manda o Arduino continuar capturando e enviando frames
 });
 
-// 🎬 ROTA DO LIVE STREAMING COM DESATIVAÇÃO DE BUFFER DO RENDER
 app.get('/api/iot/live/:mac', (req, res) => {
     const mac = req.params.mac;
     
@@ -116,9 +120,7 @@ app.get('/api/iot/live/:mac', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Pragma', 'no-cache');
-    
-    // 🔥 ESSENCIAL PARA O RENDER: Evita que o proxy da nuvem retenha os frames do vídeo em buffer
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Accel-Buffering', 'no'); // Desativa retenção de buffer no proxy do Render
 
     if (!liveClients[mac]) liveClients[mac] = [];
     liveClients[mac].push(res);
@@ -227,7 +229,6 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
-// 🌐 REESTRUTURAÇÃO DO HTML COMPACTADO POR CONCATENAÇÃO SEGURA DE ARRAYS (Elimina 100% de erros de aspas)
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -324,7 +325,8 @@ app.get('/dashboard', (req, res) => {
                                 htmlFotos = '<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura armazenada para este usuário.</p>';
                             } else {
                                 htmlFotos = '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">';
-                                fotosUsuario.reverse().forEach(function(fotoNome) {
+                                var fotosInversas = [].concat(fotosUsuario).reverse();
+                                fotosInversas.forEach(function(fotoNome) {
                                     htmlFotos += [
                                         '<div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">',
                                         '    <div class="aspect-video bg-black overflow-hidden relative">',
