@@ -19,6 +19,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 let cacheDispositivosMemoria = [];
+// Armazenamento em RAM temporário para os frames em tempo real
+const latestFrames = {}; 
 
 function carregarBanco() {
     try {
@@ -35,7 +37,6 @@ function carregarBanco() {
 cacheDispositivosMemoria = carregarBanco();
 
 const streamStatus = {};  
-const liveClients = {};   
 
 function registrarHardwarePorIdDeContingencia(mac, userIdOpcional = 'USR-8742') {
     if (!mac || mac.trim() === "") return;
@@ -72,18 +73,15 @@ app.post('/api/iot/toggle-stream', (req, res) => {
     const { mac_address, action } = req.body;
     if (action === 'start') {
         streamStatus[mac_address] = true;
-        console.log(`\n🎥 [STREAM] Transmissão de vídeo iniciada para: ${mac_address}`);
+        console.log(`\n🎥 [STREAM] Transmissão de vídeo solicitada para: ${mac_address}`);
     } else {
         streamStatus[mac_address] = false;
-        console.log(`\n🛑 [STREAM] Transmissão de vídeo encerrada para: ${mac_address}`);
-        if (liveClients[mac_address]) {
-            liveClients[mac_address].forEach(c => { try { c.end(); } catch(e){} });
-            liveClients[mac_address] = [];
-        }
+        console.log(`\n🛑 [STREAM] Transmissão de vídeo pausada para: ${mac_address}`);
     }
     res.json({ status: "success", stream: streamStatus[mac_address] });
 });
 
+// Recebe os frames enviados pelo ESP32
 app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500kb' }), (req, res) => {
     const macAddress = req.headers['x-mac-address'];
     if (!macAddress || !req.body || req.body.length === 0) {
@@ -92,44 +90,31 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
 
     registrarHardwarePorIdDeContingencia(macAddress); 
 
-    if (!streamStatus[macAddress] || !liveClients[macAddress] || liveClients[macAddress].length === 0) {
-        streamStatus[macAddress] = false;
-        return res.send('STOP');
+    // Salva o buffer binário bruto do frame na memória ativa do servidor
+    latestFrames[macAddress] = req.body;
+
+    // Responde dinamicamente dizendo se a câmera deve continuar filmando ou parar
+    if (streamStatus[macAddress]) {
+        res.send('START');
+    } else {
+        res.send('STOP');
     }
-
-    const frame = req.body;
-    liveClients[macAddress].forEach(clientRes => {
-        try {
-            clientRes.write(`--frame\r\n`);
-            clientRes.write(`Content-Type: image/jpeg\r\n`);
-            clientRes.write(`Content-Length: ${frame.length}\r\n\r\n`);
-            clientRes.write(frame);
-            clientRes.write(`\r\n`);
-        } catch(e) {}
-    });
-
-    res.send('START'); 
 });
 
-app.get('/api/iot/live/:mac', (req, res) => {
+// ✅ NOVA ROTA BLINDADA: Entrega o frame mais recente instantaneamente sem segurar conexão
+app.get('/api/iot/latest-frame/:mac', (req, res) => {
     const mac = req.params.mac;
+    const frame = latestFrames[mac];
     
-    res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no'); 
-
-    if (!liveClients[mac]) liveClients[mac] = [];
-    liveClients[mac].push(res);
-
-    req.on('close', () => {
-        liveClients[mac] = liveClients[mac].filter(c => c !== res);
-        if (liveClients[mac].length === 0) {
-            streamStatus[mac] = false;
-            console.log(`🛑 [STREAM] Sem espectadores na página. Desligando streaming do MAC: ${mac}`);
-        }
-    });
+    
+    if (!frame || frame.length === 0) {
+        // Envia um JPEG transparente de 1x1 pixel caso não tenha nenhum frame pronto para evitar quebrar a UI
+        return res.send(Buffer.from([0xFF,0xD8,0xFF,0xE0,0x00,0x10,0x4A,0x46,0x49,0x46,0x00,0x01,0x01,0x01,0x00,0x60,0x00,0x60,0x00,0x00,0xFF,0xDB,0x00,0x43,0x00,0x08,0x06,0x06,0x07,0x06,0x05,0x08,0x07,0x07,0x07,0x09,0x09,0x08,0x0A,0x0C,0x14,0x0D,0x0C,0x0B,0x0B,0x0C,0x19,0x12,0x13,0x0F,0x14,0x1D,0x1A,0x1F,0x1E,0x1D,0x1A,0x1C,0x1C,0x20,0x24,0x2E,0x27,0x20,0x22,0x2C,0x23,0x1C,0x1C,0x28,0x37,0x29,0x2C,0x30,0x31,0x34,0x34,0x34,0x1F,0x27,0x39,0x3D,0x38,0x32,0x3C,0x2E,0x33,0x34,0x32,0xFF,0xC0,0x00,0x0B,0x08,0x00,0x01,0x00,0x01,0x01,0x01,0x11,0x00,0xFF,0xC4,0x00,0x14,0x10,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x05,0xFF,0xDA,0x00,0x08,0x01,0x01,0x00,0x00,0x3F,0x00,0x50,0x00,0x3F,0xFF,0xD9]));
+    }
+    
+    res.send(frame);
 });
 
 function limparFotosAntigas() {
@@ -227,6 +212,7 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
+// 🌐 WEB DASHBOARD UNIFICADO TOTALMENTE ATUALIZADO
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -265,10 +251,14 @@ app.get('/dashboard', (req, res) => {
         </main>
 
         <script>
+            // Objeto global para armazenar os intervalos de atualização de imagem por demanda
+            var streamIntervals = {};
+
             function toggleLiveStream(mac) {
                 var container = document.getElementById('video-container-' + mac.replace(/:/g, ''));
                 var img = document.getElementById('video-feed-' + mac.replace(/:/g, ''));
                 var btn = document.getElementById('btn-stream-' + mac.replace(/:/g, ''));
+                var macSanitizado = mac.replace(/:/g, '');
                 
                 if (container.classList.contains('hidden')) {
                     fetch('/api/iot/toggle-stream', {
@@ -279,14 +269,14 @@ app.get('/dashboard', (req, res) => {
                     .then(function(res) { return res.json(); })
                     .then(function(data) {
                         container.classList.remove('hidden');
-                        
-                        // ✅ CORREÇÃO: Cache-Buster com carimbo de milissegundo (?t=...) 
-                        // Força o browser a resetar e ignorar streams velhas ou rompidas da memória cache
-                        img.src = '/api/iot/live/' + mac + '?t=' + Date.now();
-                        
                         btn.innerHTML = '🛑 Encerrar Transmissão';
                         btn.classList.replace('bg-indigo-600', 'bg-red-600');
                         btn.classList.replace('hover:bg-indigo-500', 'hover:bg-red-500');
+                        
+                        // ✅ SOLUÇÃO DO RENDER: Faz o polling a cada 200ms buscando imagens estáticas e avulsas
+                        streamIntervals[macSanitizado] = setInterval(function() {
+                            img.src = '/api/iot/latest-frame/' + mac + '?t=' + Date.now();
+                        }, 200);
                     });
                 } else {
                     fetch('/api/iot/toggle-stream', {
@@ -297,10 +287,16 @@ app.get('/dashboard', (req, res) => {
                     .then(function(res) { return res.json(); })
                     .then(function(data) {
                         container.classList.add('hidden');
-                        img.src = '';
                         btn.innerHTML = '🎥 Abrir Transmissão Ao Vivo';
                         btn.classList.replace('bg-red-600', 'bg-indigo-600');
                         btn.classList.replace('hover:bg-red-500', 'hover:bg-indigo-500');
+                        
+                        // Limpa o loop e libera o tráfego do navegador
+                        if (streamIntervals[macSanitizado]) {
+                            clearInterval(streamIntervals[macSanitizado]);
+                            delete streamIntervals[macSanitizado];
+                        }
+                        img.src = '';
                     });
                 }
             }
@@ -364,6 +360,7 @@ app.get('/dashboard', (req, res) => {
                                 htmlFotos += '</div>';
                             }
 
+                            // Event Delegation limpo via data-mac elimina 100% dos erros de aspas inesperados
                             var cardHtml = [
                                 '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">',
                                 '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">',
@@ -401,6 +398,7 @@ app.get('/dashboard', (req, res) => {
                     .catch(function(err) { console.error("Erro ao carregar dados do painel:", err); });
             }
 
+            // Escutador de clique global blindado
             document.addEventListener('click', function(e) {
                 if (e.target && e.target.classList.contains('btn-toggle-stream')) {
                     var macAddress = e.target.getAttribute('data-mac');
