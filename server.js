@@ -227,6 +227,7 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
+// 🌐 DASHBOARD REESTRUTURADA: Sem conflitos de aspas no navegador
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -320,11 +321,10 @@ app.get('/dashboard', (req, res) => {
                         var central = document.getElementById('central-dispositivos');
                         central.innerHTML = '';
                         
-                        // ✅ SEÇÃO DE DIAGNÓSTICO E BUSCA SE TUDO ESTIVER ZERADO
                         if (!data.dispositivos_registrados || data.dispositivos_registrados.length === 0) {
                             central.innerHTML = [
                                 '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-xl mx-auto text-center space-y-4">',
-                                '    <p class="text-sm text-slate-400">Nenhuma câmara ativa em memória (o Render pode ter reiniciado).</p>',
+                                '    <p class="text-sm text-slate-400">Nenhuma câmera ativa em memória (o Render pode ter reiniciado).</p>',
                                 '    <div class="border-t border-slate-800 pt-4 space-y-3">',
                                 '        <p class="text-xs text-slate-500">💡 Ferramenta de Debug: Force a visualização digitando o MAC da sua câmara:</p>',
                                 '        <div class="flex gap-2">',
@@ -361,6 +361,7 @@ app.get('/dashboard', (req, res) => {
                                 htmlFotos += '</div>';
                             }
 
+                            // ✅ CORREÇÃO EM DATA-MAC: Remove o onclick em string e injeta como atributo limpo
                             var cardHtml = [
                                 '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">',
                                 '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">',
@@ -376,7 +377,7 @@ app.get('/dashboard', (req, res) => {
                                 '    ',
                                 '    <div class="space-y-3">',
                                 '        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>',
-                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">',
+                                '        <button data-mac="' + disp.mac_address + '" id="btn-stream-' + macIdSanitizado + '" class="btn-toggle-stream px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">',
                                 '            🎥 Abrir Transmissão Ao Vivo',
                                 '        </button>',
                                 '        <div id="video-container-' + macIdSanitizado + '" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">',
@@ -397,6 +398,15 @@ app.get('/dashboard', (req, res) => {
                     })
                     .catch(function(err) { console.error("Erro ao carregar dados do painel:", err); });
             }
+
+            // ✅ NOVO: Captura os cliques nos botões usando Event Delegation (Evita erros de sintaxe e aspas)
+            document.addEventListener('click', function(e) {
+                if (e.target && e.target.classList.contains('btn-toggle-stream')) {
+                    var macAddress = e.target.getAttribute('data-mac');
+                    toggleLiveStream(macAddress);
+                }
+            });
+
             carregarDados();
             setInterval(carregarDados, 10000);
         </script>
