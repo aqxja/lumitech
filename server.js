@@ -31,7 +31,6 @@ try {
 const streamStatus = {};  
 const liveClients = {};   
 
-// ✅ CORRIGIDO: Retirado o espaço em branco da variável para eliminar o SyntaxError
 function registrarHardwarePorIdDeContingencia(mac, userIdOpcional = 'USR-8742') {
     if (!mac || mac.trim() === "") return;
     try {
@@ -224,6 +223,7 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
+// 🌐 ROTA DO DASHBOARD REESTRUTURADA COM BACKTICKS ESCAPADOS (Sem erros de aspas)
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -318,53 +318,56 @@ app.get('/dashboard', (req, res) => {
                             
                             let htmlFotos = '';
                             if (fotosUsuario.length === 0) {
-                                htmlFotos = '<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura em anexo nesta pasta. Aguardando disparo automático (07:00, 12:00, 19:00).</p>';
+                                htmlFotos = \`<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura em anexo nesta pasta. Aguardando disparo automático (07:00, 12:00, 19:00).</p>\`;
                             } else {
-                                htmlFotos = '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">';
+                                htmlFotos = \`<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">\`;
                                 [...fotosUsuario].reverse().forEach(fotoNome => {
-                                    htmlFotos += '<div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">' +
-                                        '    <div class="aspect-video bg-black overflow-hidden relative">' +
-                                        '        <img src="/uploads/' + disp.user_id + '/' + fotoNome + '" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura Fixa" />' +
-                                        '    </div>' +
-                                        '    <div class="p-2 text-[10px] text-slate-400 font-mono truncate">' + fotoNome + '</div>' +
-                                        '</div>';
+                                    htmlFotos += \`
+                                        <div class="bg-slate-950 border border-slate-800/80 rounded-xl overflow-hidden group hover:border-slate-700 transition shadow-inner">
+                                            <div class="aspect-video bg-black overflow-hidden relative">
+                                                <img src="/uploads/\${disp.user_id}/\${fotoNome}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Captura Fixa" />
+                                            </div>
+                                            <div class="p-2 text-[10px] text-slate-400 font-mono truncate">\${fotoNome}</div>
+                                        </div>
+                                    \`;
                                 });
-                                htmlFotos += '</div>';
+                                htmlFotos += \`</div>\`;
                             }
 
-                            central.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">' +
-                                '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">' +
-                                '        <div>' +
-                                '            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 ID Usuário: ' + disp.user_id + '</h3>' +
-                                '            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">' + disp.device_model + '</span> | MAC: <span class="font-mono text-slate-300">' + disp.mac_address + '</span></p>' +
-                                '        </div>' +
-                                '        <div class="text-right text-xs">' +
-                                '            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Conectada por MAC</span>' +
-                                '            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: ' + dataFormatada + '</p>' +
-                                '        </div>' +
-                                '    </div>' +
-                                '    ' +
-                                '    ' +
-                                '    <div class="space-y-3">' +
-                                '        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>' +
-                                '        <button onclick="toggleLiveStream(\'' + disp.mac_address + '\')" id="btn-stream-' + macIdSanitizado + '" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">' +
-                                '            🎥 Abrir Transmissão Ao Vivo' +
-                                '        </button>' +
-                                '        <div id="video-container-' + macIdSanitizado + '" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">' +
-                                '            <img id="video-feed-' + macIdSanitizado + '" class="w-full h-full object-contain" src="" alt="Live feed" />' +
-                                '            <span class="absolute top-3 left-3 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">STREAM ATIVO</span>' +
-                                '        </div>' +
-                                '    </div>' +
-                                '    ' +
-                                '    ' +
-                                '    <div class="pt-4 border-t border-slate-800/60 space-y-3">' +
-                                '        <div class="flex items-center gap-2">' +
-                                '            <h4 class="text-sm font-semibold text-slate-300">📁 Pasta de Armazenamento Coletado (' + disp.user_id + ')</h4>' +
-                                '            <span class="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-md font-medium">' + fotosUsuario.length + ' arquivos</span>' +
-                                '        </div>' +
-                                '        ' + htmlFotos +
-                                '    </div>' +
-                                '</div>';
+                            // Renderização 100% limpa com crases escapadas (Garante que o navegador compile perfeitamente)
+                            central.innerHTML += \`
+                                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">
+                                    <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+                                        <div>
+                                            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 ID Usuário: \${disp.user_id}</h3>
+                                            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">\${disp.device_model}</span> | MAC: <span class="font-mono text-slate-300">\${disp.mac_address}</span></p>
+                                        </div>
+                                        <div class="text-right text-xs">
+                                            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Ativa por ID Hardware</span>
+                                            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: \${dataFormatada}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="space-y-3">
+                                        <h4 class="text-sm font-semibold text-slate-300 flex items-center gap-1.5">🎬 Transmissão de Vídeo Feed</h4>
+                                        <button onclick="toggleLiveStream('\${disp.mac_address}')" id="btn-stream-\${macIdSanitizado}" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-xl transition active:scale-95 shadow-md flex items-center gap-1.5">
+                                            🎥 Abrir Transmissão Ao Vivo
+                                        </button>
+                                        <div id="video-container-\${macIdSanitizado}" class="hidden rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video max-w-2xl relative flex items-center justify-center mx-auto shadow-2xl">
+                                            <img id="video-feed-\${macIdSanitizado}" class="w-full h-full object-contain" src="" alt="Live feed" />
+                                            <span class="absolute top-3 left-3 px-2 py-0.5 bg-red-600 text-[10px] font-bold rounded animate-pulse">STREAM ATIVO</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="pt-4 border-t border-slate-800/60 space-y-3">
+                                        <div class="flex items-center gap-2">
+                                            <h4 class="text-sm font-semibold text-slate-300">📁 Pasta de Armazenamento Coletado (\${disp.user_id})</h4>
+                                            <span class="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-md font-medium">\${fotosUsuario.length} arquivos</span>
+                                        </div>
+                                        \${htmlFotos}
+                                    </div>
+                                </div>
+                            \`;
                         });
                     })
                     .catch(err => console.error("Erro ao processar central:", err));
