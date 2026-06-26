@@ -31,8 +31,37 @@ try {
 const streamStatus = {};  
 const liveClients = {};   
 
+// ✅ NOVO INTERCEPTOR INTERNO: Registra o hardware automaticamente se ele interagir com o servidor
+function registrarHardwarePorIdDeContingencia(mac, userId Opcional = 'USR-8742') {
+    if (!mac || mac.trim() === "") return;
+    try {
+        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        const existe = dbData.some(item => item.mac_address === mac);
+        
+        if (!existe) {
+            const deviceInfo = { 
+                user_id: userIdOpcional, 
+                mac_address: mac, 
+                device_model: "XIAO ESP32S3 OmniGuardian (Auto-Conectado)", 
+                last_seen: new Date().toISOString() 
+            };
+            dbData.push(deviceInfo);
+            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+            console.log(`\n🤖 [AUTO-CONEXÃO] Câmera ${mac} detectada. Usuário criado automaticamente no banco.`);
+            
+            const pastaDoUsuario = path.join(UPLOADS_DIR, userIdOpcional);
+            if (!fs.existsSync(pastaDoUsuario)) {
+                fs.mkdirSync(pastaDoUsuario, { recursive: true });
+            }
+        }
+    } catch (e) {
+        console.error("Falha ao registrar hardware dinamicamente:", e);
+    }
+}
+
 app.get('/api/iot/stream-status', (req, res) => {
     const mac = req.query.mac;
+    registrarHardwarePorIdDeContingencia(mac); // Garante a criação se a câmera pingar aqui
     res.json({ stream: !!streamStatus[mac] });
 });
 
@@ -58,23 +87,7 @@ app.post('/api/iot/stream-frame', express.raw({ type: 'image/jpeg', limit: '500k
         return res.status(400).send('Dados de frame inválidos.');
     }
 
-    try {
-        const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        const existe = dbData.some(item => item.mac_address === macAddress);
-        if (!existe) {
-            const deviceInfo = { 
-                user_id: "USR-8742", 
-                mac_address: macAddress, 
-                device_model: "XIAO ESP32S3 OmniGuardian (Auto-Recuperado)", 
-                last_seen: new Date().toISOString() 
-            };
-            dbData.push(deviceInfo);
-            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-            console.log(`⚠️ [SERVER] Dispositivo ${macAddress} remapeado dinamicamente via stream de dados.`);
-        }
-    } catch(e) {
-        console.error("Falha no auto-registro de contingência:", e);
-    }
+    registrarHardwarePorIdDeContingencia(macAddress); // Garante a criação se receber frames de vídeo
 
     if (liveClients[macAddress] && liveClients[macAddress].length > 0) {
         const frame = req.body;
@@ -149,21 +162,21 @@ const upload = multer({ storage: storage });
 
 app.post('/api/iot/register-device', (req, res) => {
     const { user_id, mac_address, device_model } = req.body;
-    if (!user_id || !mac_address) return res.status(400).send('Dados incompletos.');
+    if (!mac_address) return res.status(400).send('MAC Address ausente.');
     
+    const finalUserId = user_id || 'USR-8742';
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const deviceIndex = dbData.findIndex(item => item.mac_address === mac_address);
-        const deviceInfo = { user_id, mac_address, device_model: device_model || "ESP32-CAM OmniGuardian", last_seen: new Date().toISOString() };
+        const deviceInfo = { user_id: finalUserId, mac_address, device_model: device_model || "ESP32-CAM OmniGuardian", last_seen: new Date().toISOString() };
         
         if (deviceIndex >= 0) dbData[deviceIndex] = deviceInfo; else dbData.push(deviceInfo);
         fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
-        console.log(`\n📲 [API] Dispositivo Mapeado: Usuário ${user_id} vinculado à Câmera ${mac_address}`);
+        console.log(`\n📲 [API] Dispositivo Registrado: Usuário ${finalUserId} -> Câmera ${mac_address}`);
 
-        const pastaDoUsuario = path.join(UPLOADS_DIR, user_id);
+        const pastaDoUsuario = path.join(UPLOADS_DIR, finalUserId);
         if (!fs.existsSync(pastaDoUsuario)) {
             fs.mkdirSync(pastaDoUsuario, { recursive: true });
-            console.log(`📁 [API] Pasta criada antecipadamente para o Dashboard: ${user_id}`);
         }
 
         res.status(200).json({ status: "success" });
@@ -179,20 +192,13 @@ app.post('/api/iot/lighttrap/', upload.single('image'), (req, res) => {
     if (!file) return res.status(400).send('Imagem ausente.');
     
     let userId = 'USR-8742'; 
+    registrarHardwarePorIdDeContingencia(macAddress, userId); // Garante a criação se receber fotos fixas
+
     try {
         const dbData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         const linkCorrespondente = dbData.find(item => item.mac_address === macAddress);
         if (linkCorrespondente) {
             userId = linkCorrespondente.user_id;
-        } else {
-            const deviceInfo = { 
-                user_id: userId, 
-                mac_address: macAddress, 
-                device_model: "XIAO ESP32S3 OmniGuardian (Auto-Recuperado)", 
-                last_seen: new Date().toISOString() 
-            };
-            dbData.push(deviceInfo);
-            fs.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
         }
     } catch (e) {}
     
@@ -218,7 +224,6 @@ app.get('/api/iot/overview', (req, res) => {
     } catch (err) { res.status(500).json({ erro: "Erro ao gerar relatório." }); }
 });
 
-// 🌐 REESTRUTURAÇÃO DO DASHBOARD: Vídeo e Fotos acoplados no mesmo bloco por Câmera
 app.get('/dashboard', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -309,10 +314,8 @@ app.get('/dashboard', (req, res) => {
                             const dataFormatada = new Date(disp.last_seen).toLocaleString('pt-BR');
                             const macIdSanitizado = disp.mac_address.replace(/:/g, '');
                             
-                            // Busca as fotos salvas pertencentes à pasta deste Usuário específico
                             const fotosUsuario = data.arquivos_armazenados[disp.user_id] || [];
                             
-                            // Monta o HTML da galeria que fica LOGO ABAIXO da filmagem
                             let htmlFotos = '';
                             if (fotosUsuario.length === 0) {
                                 htmlFotos = '<p class="text-xs text-slate-500 bg-slate-950/60 p-4 rounded-xl border border-slate-800/40">Nenhuma captura em anexo nesta pasta. Aguardando disparo automático (07:00, 12:00, 19:00).</p>';
@@ -329,15 +332,14 @@ app.get('/dashboard', (req, res) => {
                                 htmlFotos += '</div>';
                             }
 
-                            // Renderiza a estrutura completa solicitada (Câmera -> Transmissão -> Pasta de fotos abaixo)
                             central.innerHTML += '<div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-6">' +
                                 '    <div class="flex justify-between items-center border-b border-slate-800 pb-4">' +
                                 '        <div>' +
-                                '            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 Dispositivo: ' + disp.user_id + '</h3>' +
+                                '            <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">📷 ID Usuário: ' + disp.user_id + '</h3>' +
                                 '            <p class="text-xs text-slate-400 mt-1">Modelo: <span class="text-blue-400 font-medium">' + disp.device_model + '</span> | MAC: <span class="font-mono text-slate-300">' + disp.mac_address + '</span></p>' +
                                 '        </div>' +
                                 '        <div class="text-right text-xs">' +
-                                '            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Pronto para Operar</span>' +
+                                '            <span class="text-emerald-400 font-semibold flex items-center justify-end gap-1">● Conectada por MAC</span>' +
                                 '            <p class="text-[10px] text-slate-500 mt-1">Sinalizado em: ' + dataFormatada + '</p>' +
                                 '        </div>' +
                                 '    </div>' +
